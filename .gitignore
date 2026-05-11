@@ -1,5 +1,6 @@
 .DS_Store
-.codex/environments/environment-*.toml
+.codex/
+script/
 .venv/
 .pytest_cache/
 __pycache__/
