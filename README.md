@@ -43,6 +43,7 @@ decisiontrail assumptions
 decisiontrail score
 decisiontrail run weekly-review
 decisiontrail export --format html
+decisiontrail ui
 ```
 
 ## Record format
@@ -99,10 +100,34 @@ decisiontrail review DEC-2026-001 --outcome "Gross margin improved without reten
 decisiontrail parse-meeting notes/weekly.md
 decisiontrail export --format html
 decisiontrail check
+decisiontrail ui --path . --host 127.0.0.1 --port 8765
 decisiontrail run weekly-review
 decisiontrail run audit
 decisiontrail run export-html
 ```
+
+## Local web UI
+
+DecisionTrail includes a localhost-only browser UI for adding and reviewing
+decision records without leaving the local project folder:
+
+```bash
+decisiontrail ui
+```
+
+The UI runs at `http://127.0.0.1:8765` by default and writes the same
+Markdown/YAML files as the CLI. It includes:
+
+- dashboard summaries for due reviews, missing metrics, low scores, and
+  unvalidated assumptions
+- decision list filters by status and owner
+- a form for creating new decision records
+- decision detail pages with scorecards, assumptions, and Markdown preview
+- an outcome review form
+
+All UI labels are English. Content fields use `dir="auto"`, and record previews
+honor each decision's `language` and `direction` metadata so Persian and mixed
+RTL/LTR decisions render cleanly.
 
 ## Internal actions
 

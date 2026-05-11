@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}DecisionTrail dashboard{% endblock %}
+{% block content %}
+<section class="page-title">
+  <div>
+    <h1>Decision dashboard</h1>
+    <p>Local records in <code>{{ root }}</code></p>
+  </div>
+  <a class="button" href="/decisions/new">Add decision</a>
+</section>
+
+<section class="stats" aria-label="Decision health summary">
+  <article><span>{{ records|length }}</span><strong>Total records</strong></article>
+  <article><span>{{ report.due|length }}</span><strong>Due reviews</strong></article>
+  <article><span>{{ report.missing_metrics|length }}</span><strong>Missing metrics</strong></article>
+  <article><span>{{ report.unvalidated_assumptions|length }}</span><strong>Unvalidated assumptions</strong></article>
+  <article><span>{{ low_scores|length }}</span><strong>Low scores</strong></article>
+</section>
+
+<section class="panel">
+  <div class="panel-heading">
+    <h2>Decision records</h2>
+    <form class="filters" method="get" action="/">
+      <select name="status" aria-label="Status filter">
+        <option value="">All statuses</option>
+        {% for status in valid_statuses %}
+        <option value="{{ status }}" {% if status_filter == status %}selected{% endif %}>{{ status }}</option>
+        {% endfor %}
+      </select>
+      <input name="owner" value="{{ owner_filter }}" placeholder="Owner" aria-label="Owner filter">
+      <button type="submit">Filter</button>
+    </form>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Title</th>
+          <th>Status</th>
+          <th>Owner</th>
+          <th>Score</th>
+          <th>Revisit</th>
+          <th>Language</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for record in filtered_records %}
+        <tr>
+          <td><a href="/decisions/{{ record.id }}">{{ record.id }}</a></td>
+          <td dir="auto">{{ record.title }}</td>
+          <td>{{ record.status }}</td>
+          <td dir="auto">{{ record.owner or "Unassigned" }}</td>
+          <td>{{ scores[record.id].score }}</td>
+          <td>{{ record.revisit_on or "-" }}</td>
+          <td>{{ record.language }} / {{ record.direction }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7">No decision records match the current filters.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="grid-two">
+  <article class="panel">
+    <h2>Due reviews</h2>
+    <ul class="compact-list">
+      {% for record in report.due %}
+      <li><a href="/decisions/{{ record.id }}">{{ record.id }}</a><span dir="auto">{{ record.title }}</span></li>
+      {% else %}
+      <li>No decisions are due.</li>
+      {% endfor %}
+    </ul>
+  </article>
+  <article class="panel">
+    <h2>Unvalidated assumptions</h2>
+    <ul class="compact-list">
+      {% for item in report.unvalidated_assumptions %}
+      <li><a href="/decisions/{{ item.decision_id }}">{{ item.decision_id }}</a><span dir="auto">{{ item.text }}</span></li>
+      {% else %}
+      <li>No unvalidated assumptions.</li>
+      {% endfor %}
+    </ul>
+  </article>
+</section>
+{% endblock %}

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}{{ record.id }}{% endblock %}
+{% block content %}
+<section class="page-title">
+  <div dir="auto">
+    <p class="meta-line">{{ record.id }} · {{ record.status }}</p>
+    <h1>{{ record.title }}</h1>
+  </div>
+  <a class="button" href="/decisions/new">Add decision</a>
+</section>
+
+<section class="stats" aria-label="Decision detail summary">
+  <article><span>{{ score.score }}</span><strong>Score</strong></article>
+  <article><span>{{ record.owner or "-" }}</span><strong>Owner</strong></article>
+  <article><span>{{ record.revisit_on or "-" }}</span><strong>Revisit</strong></article>
+  <article><span>{{ record.language }}</span><strong>Language</strong></article>
+  <article><span>{{ record.direction }}</span><strong>Direction</strong></article>
+</section>
+
+{% if issues %}
+<section class="alert" role="status">
+  <strong>Audit warnings</strong>
+  <ul>
+    {% for issue in issues %}
+    <li>{{ issue }}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section class="grid-two">
+  <article class="panel">
+    <h2>Scorecard</h2>
+    <dl class="stacked">
+      <div><dt>Passed</dt><dd>{{ score.passed|join(", ") or "-" }}</dd></div>
+      <div><dt>Missing</dt><dd>{{ score.missing|join(", ") or "-" }}</dd></div>
+      <div><dt>Warnings</dt><dd>{{ score.warnings|join(", ") or "-" }}</dd></div>
+    </dl>
+  </article>
+  <article class="panel">
+    <h2>Assumptions</h2>
+    <ul class="compact-list">
+      {% for item in assumptions %}
+      <li><strong>{{ item.status }}</strong><span dir="auto">{{ item.text }}</span></li>
+      {% else %}
+      <li>No assumptions recorded.</li>
+      {% endfor %}
+    </ul>
+  </article>
+</section>
+
+<section class="panel">
+  <h2>Outcome review</h2>
+  <form class="review-form" method="post" action="/decisions/{{ record.id }}/review">
+    <div class="field wide">
+      <label for="outcome">Outcome</label>
+      <textarea id="outcome" name="outcome" rows="4" dir="auto" required>{{ record.outcome or "" }}</textarea>
+    </div>
+    <div class="field">
+      <label for="reviewed_on">Reviewed on</label>
+      <input id="reviewed_on" name="reviewed_on" value="{{ record.reviewed_on or today }}">
+    </div>
+    <div class="field wide">
+      <label for="metric_note">Metric note</label>
+      <textarea id="metric_note" name="metric_note" rows="3" dir="auto"></textarea>
+    </div>
+    <button class="button" type="submit">Save review</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Record preview</h2>
+  <article class="markdown-body" lang="{{ record.language }}" dir="{{ record.direction }}">
+    {{ body_html|safe }}
+  </article>
+</section>
+{% endblock %}
