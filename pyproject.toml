@@ -1,0 +1,35 @@
+[project]
+name = "decisiontrail"
+version = "0.2.0"
+description = "Git-native decision log for founders, product teams, and operators."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "DecisionTrail contributors" }
+]
+keywords = ["decision-log", "adr", "product", "strategy", "local-first", "cli"]
+dependencies = [
+  "jinja2>=3.1",
+  "markdown>=3.6",
+  "pyyaml>=6.0",
+  "rich>=13.7",
+  "typer>=0.12",
+]
+
+[project.scripts]
+decisiontrail = "decisiontrail.cli:app"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

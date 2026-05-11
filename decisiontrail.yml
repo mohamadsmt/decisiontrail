@@ -1,0 +1,8 @@
+decisions_dir: decisions
+templates_dir: templates
+export_dir: site
+score_threshold: 70
+warn_only: true
+overdue_policy: warn
+missing_metric_policy: warn
+unvalidated_assumption_policy: warn
