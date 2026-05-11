@@ -38,3 +38,19 @@ def test_load_decisions_reads_markdown_records(tmp_path) -> None:
     assert len(records) == 1
     assert records[0].title == "Launch pricing"
     assert records[0].owner == "Product"
+
+
+def test_create_decision_persists_relationship_metadata(tmp_path) -> None:
+    config = load_config(tmp_path)
+    parent = create_decision(tmp_path, config, "Parent")
+    target = create_decision(tmp_path, config, "Target")
+    child = create_decision(
+        tmp_path,
+        config,
+        "Child",
+        parent_id=parent.id,
+        related_decisions=[{"id": target.id, "type": "depends_on", "note": "Required first"}],
+    )
+
+    assert child.parent_id == parent.id
+    assert child.related_decisions == [{"id": target.id, "type": "depends_on", "note": "Required first"}]

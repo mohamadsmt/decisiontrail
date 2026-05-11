@@ -8,6 +8,7 @@ from typing import Any
 
 VALID_STATUSES = {"proposed", "accepted", "rejected", "superseded", "reviewed"}
 VALID_DIRECTIONS = {"auto", "ltr", "rtl"}
+VALID_RELATION_TYPES = {"related_to", "depends_on", "blocks", "supersedes", "informs"}
 
 
 def as_date(value: Any) -> date | None:
@@ -115,6 +116,14 @@ class DecisionRecord:
     @property
     def tags(self) -> list[Any]:
         return normalize_list(self.metadata.get("tags"))
+
+    @property
+    def parent_id(self) -> str:
+        return str(self.metadata.get("parent_id", "") or "").strip()
+
+    @property
+    def related_decisions(self) -> list[Any]:
+        return normalize_list(self.metadata.get("related_decisions"))
 
     def has_rtl_content(self) -> bool:
         return contains_rtl_text(self.metadata) or contains_rtl_text(self.body)

@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Meeting parser{% endblock %}
+{% block content %}
+<section class="page-title">
+  <div>
+    <h1>Meeting parser</h1>
+    <p>Extract draft decision records from Markdown meeting notes.</p>
+  </div>
+</section>
+
+{% if errors %}
+<section class="alert" role="alert">
+  <strong>Parser warnings</strong>
+  <ul>
+    {% for error in errors %}
+    <li>{{ error }}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if created %}
+<section class="panel">
+  <h2>Created decisions</h2>
+  <ul class="compact-list">
+    {% for record in created %}
+    <li><a href="/decisions/{{ record.id }}">{{ record.id }}</a><span dir="auto">{{ record.title }}</span></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<form class="panel decision-form" method="post" action="/meeting-parser">
+  <div class="field wide">
+    <label for="meeting_text">Meeting notes</label>
+    <textarea id="meeting_text" name="meeting_text" rows="12" dir="auto">{{ meeting_text }}</textarea>
+  </div>
+
+  {% if drafts %}
+  <section class="wide">
+    <h2>Draft decisions</h2>
+    <ul class="compact-list">
+      {% for draft in drafts %}
+      <li>
+        <label class="checkbox-row">
+          <input type="checkbox" name="selected" value="{{ loop.index0 }}" checked>
+          <span dir="auto">{{ draft.title }}</span>
+        </label>
+        <small>{{ draft.options|length }} options · {{ draft.assumptions|length }} assumptions · {{ draft.success_metrics|length }} metrics</small>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  <div class="actions">
+    <button class="button-light" type="submit" name="action" value="preview">Preview drafts</button>
+    <button class="button" type="submit" name="action" value="create">Create selected</button>
+  </div>
+</form>
+{% endblock %}

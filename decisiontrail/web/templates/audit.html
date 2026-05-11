@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Audit{% endblock %}
+{% block content %}
+<section class="page-title">
+  <div>
+    <h1>Audit</h1>
+    <p>Local validation and review checks for <code>{{ root }}</code></p>
+  </div>
+  <form method="post" action="/export-html">
+    <button class="button" type="submit">Export HTML</button>
+  </form>
+</section>
+
+<section class="stats" aria-label="Audit summary">
+  <article><span>{{ issues|length }}</span><strong>Structural issues</strong></article>
+  <article><span>{{ low_scores|length }}</span><strong>Low scores</strong></article>
+  <article><span>{{ due|length }}</span><strong>Due reviews</strong></article>
+  <article><span>{{ missing_metrics|length }}</span><strong>Missing metrics</strong></article>
+  <article><span>{{ unvalidated_assumptions|length }}</span><strong>Unvalidated assumptions</strong></article>
+</section>
+
+<section class="grid-two">
+  <article class="panel">
+    <h2>Structural issues</h2>
+    <ul class="compact-list">
+      {% for record, issue in issues %}
+      <li><a href="/decisions/{{ record.id }}">{{ record.id }}</a><span>{{ issue }}</span></li>
+      {% else %}
+      <li>No structural issues found.</li>
+      {% endfor %}
+    </ul>
+  </article>
+  <article class="panel">
+    <h2>Low scores</h2>
+    <ul class="compact-list">
+      {% for score in low_scores %}
+      <li><a href="/decisions/{{ score.decision_id }}">{{ score.decision_id }}</a><span>{{ score.score }} · {{ score.missing|join(", ") }}</span></li>
+      {% else %}
+      <li>No low-score records.</li>
+      {% endfor %}
+    </ul>
+  </article>
+</section>
+
+<section class="grid-two">
+  <article class="panel">
+    <h2>Due reviews</h2>
+    <ul class="compact-list">
+      {% for record in due %}
+      <li><a href="/decisions/{{ record.id }}">{{ record.id }}</a><span dir="auto">{{ record.title }}</span></li>
+      {% else %}
+      <li>No decisions are due.</li>
+      {% endfor %}
+    </ul>
+  </article>
+  <article class="panel">
+    <h2>Missing metrics</h2>
+    <ul class="compact-list">
+      {% for record in missing_metrics %}
+      <li><a href="/decisions/{{ record.id }}">{{ record.id }}</a><span dir="auto">{{ record.title }}</span></li>
+      {% else %}
+      <li>No decisions are missing metrics.</li>
+      {% endfor %}
+    </ul>
+  </article>
+</section>
+
+<section class="panel">
+  <h2>Unvalidated assumptions</h2>
+  <ul class="compact-list">
+    {% for item in unvalidated_assumptions %}
+    <li><a href="/decisions/{{ item.decision_id }}#assumptions">{{ item.decision_id }}</a><span dir="auto">{{ item.text }}</span></li>
+    {% else %}
+    <li>No unvalidated assumptions.</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}

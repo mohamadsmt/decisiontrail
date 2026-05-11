@@ -7,6 +7,7 @@ from markdown import markdown
 
 from decisiontrail.config import DecisionTrailConfig
 from decisiontrail.models import DecisionRecord
+from decisiontrail.relationships import backlinks, children_of, outgoing_relations
 from decisiontrail.storage import slugify
 from decisiontrail.templates import HTML_CSS, HTML_DECISION_TEMPLATE, HTML_INDEX_TEMPLATE
 
@@ -27,12 +28,17 @@ def export_html(records: list[DecisionRecord], output_dir: Path, config: Decisio
 
     pages: list[Path] = []
     index_items = []
+    records_by_id = {record.id: record for record in records}
+    hrefs_by_id = {record.id: decision_href(record) for record in records}
     for record in records:
-        href = decision_href(record)
-        index_items.append({"record": record, "href": href})
+        href = hrefs_by_id[record.id]
+        parent = records_by_id.get(record.parent_id) if record.parent_id else None
+        children = children_of(records, record.id)
+        index_items.append({"record": record, "href": href, "parent": parent, "child_count": len(children)})
         body_html = markdown(record.body, extensions=["fenced_code", "tables"])
         details = [
             ("Owner", record.owner or "Unassigned"),
+            ("Parent", record.parent_id or "None"),
             ("Date", record.decision_date or "Unknown"),
             ("Revisit", record.revisit_on or "Not set"),
             ("Language", record.language),
@@ -44,6 +50,12 @@ def export_html(records: list[DecisionRecord], output_dir: Path, config: Decisio
                 record=record,
                 details=details,
                 body_html=body_html,
+                records_by_id=records_by_id,
+                hrefs_by_id=hrefs_by_id,
+                parent=parent,
+                children=children,
+                outgoing_relations=outgoing_relations(record),
+                backlinks=backlinks(records, record.id),
                 css=HTML_CSS,
                 html_dir=html_direction(record),
                 content_dir=html_direction(record),

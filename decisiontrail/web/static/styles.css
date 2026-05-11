@@ -9,6 +9,7 @@
   --accent-strong: #0f4f42;
   --danger-bg: #fff4e7;
   --danger-line: #e1a766;
+  --danger: #a13918;
 }
 
 * { box-sizing: border-box; }
@@ -110,6 +111,17 @@ button {
   padding-inline: 12px;
 }
 
+.button-light {
+  background: white;
+  border-color: var(--line);
+  color: var(--text);
+}
+
+.button-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
 .stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -151,6 +163,11 @@ button {
 .panel h2 {
   font-size: 1.05rem;
   margin: 0 0 14px;
+}
+
+.panel h3 {
+  font-size: 0.95rem;
+  margin: 16px 0 10px;
 }
 
 .panel-heading {
@@ -235,6 +252,23 @@ th {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.compact-form {
+  display: grid;
+  gap: 10px;
+  margin-block-start: 10px;
+}
+
+.inline-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inline-form button,
+.compact-form button {
+  width: fit-content;
+}
+
 .field {
   display: grid;
   gap: 6px;
@@ -246,6 +280,16 @@ th {
   font-weight: 720;
 }
 
+.help-text,
+.compact-list small {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.help-text {
+  margin: 0;
+}
+
 .wide,
 .actions {
   grid-column: 1 / -1;
@@ -255,6 +299,26 @@ th {
   display: flex;
   align-items: center;
   gap: 14px;
+}
+
+.inline-actions {
+  grid-column: auto;
+  justify-content: end;
+}
+
+.danger-zone {
+  border-color: var(--danger-line);
+}
+
+.checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.checkbox-row input {
+  width: auto;
+  min-height: auto;
 }
 
 .alert {

@@ -72,6 +72,11 @@ success_metrics:
   - gross_margin
   - merchant_retention
 revisit_on: 2026-07-15
+parent_id: ""
+related_decisions:
+  - id: DEC-2026-000
+    type: informs
+    note: Original pricing context
 language: en
 direction: auto
 ```
@@ -96,6 +101,10 @@ decisiontrail list --status accepted --owner Product
 decisiontrail due
 decisiontrail assumptions
 decisiontrail score DEC-2026-001
+decisiontrail new "Launch partner pilot" --parent DEC-2026-001 --related depends_on:DEC-2026-002
+decisiontrail relate DEC-2026-003 DEC-2026-001 --type informs --note "Pricing context"
+decisiontrail links DEC-2026-001
+decisiontrail tree
 decisiontrail review DEC-2026-001 --outcome "Gross margin improved without retention loss."
 decisiontrail parse-meeting notes/weekly.md
 decisiontrail export --format html
@@ -121,13 +130,61 @@ Markdown/YAML files as the CLI. It includes:
 - dashboard summaries for due reviews, missing metrics, low scores, and
   unvalidated assumptions
 - decision list filters by status and owner
-- a form for creating new decision records
-- decision detail pages with scorecards, assumptions, and Markdown preview
-- an outcome review form
+- a form for creating new decision records with optional parent and typed links
+- edit forms for updating frontmatter and Markdown body without changing the ID
+  or filename
+- decision detail pages with scorecards, parent/child links, outgoing links,
+  computed backlinks, and Markdown preview
+- quick status changes and outcome review
+- assumption verification with `unvalidated`, `pending`, `validated`, and
+  `invalidated` statuses
+- local audit, HTML export, and meeting-note parsing from the browser
+- guarded delete for unreferenced decisions
 
 All UI labels are English. Content fields use `dir="auto"`, and record previews
 honor each decision's `language` and `direction` metadata so Persian and mixed
 RTL/LTR decisions render cleanly.
+
+Delete is intentionally conservative: the UI hard-removes the Markdown file only
+after the exact decision ID is typed, and it blocks deletion while the decision
+has child decisions or incoming backlinks. Recovery is expected to come from the
+local filesystem or Git history.
+
+## Relationships
+
+DecisionTrail supports one hierarchical parent plus directed typed links.
+Backlinks are computed from all local records and are never written into the
+target decision file.
+
+```yaml
+parent_id: DEC-2026-001
+related_decisions:
+  - id: DEC-2026-002
+    type: depends_on
+    note: Required before launch
+```
+
+Supported relation types are `related_to`, `depends_on`, `blocks`,
+`supersedes`, and `informs`.
+
+Create child and related decisions from the CLI:
+
+```bash
+decisiontrail new "Define enterprise pricing pilot" --parent DEC-2026-001
+decisiontrail new "Launch partner pilot" --related depends_on:DEC-2026-001
+decisiontrail relate DEC-2026-003 DEC-2026-001 --type informs --note "Pricing context"
+decisiontrail links DEC-2026-001
+decisiontrail tree
+```
+
+The local web UI includes a parent dropdown, an `Add child decision` flow from a
+decision detail page, a related-decision textarea that accepts one relation per
+line, and detail-page controls for adding or removing outgoing relations:
+
+```text
+depends_on: DEC-2026-001 | optional note
+informs: DEC-2026-002
+```
 
 ## Internal actions
 

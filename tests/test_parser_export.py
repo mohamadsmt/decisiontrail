@@ -69,3 +69,28 @@ def test_export_html_uses_rtl_metadata_and_utf8_content(tmp_path) -> None:
     assert 'dir="rtl"' in html
     assert "تصمیم فارسی" in html
     assert "margin-inline" in html
+
+
+def test_export_html_renders_relationships_and_backlinks(tmp_path) -> None:
+    config = load_config(tmp_path)
+    parent = create_decision(tmp_path, config, "Parent decision")
+    target = create_decision(tmp_path, config, "Target decision")
+    child = create_decision(
+        tmp_path,
+        config,
+        "Child decision",
+        parent_id=parent.id,
+        related_decisions=[{"id": target.id, "type": "informs", "note": "Metric context"}],
+    )
+
+    pages = export_html([parent, target, child], tmp_path / "site", config)
+    index_html = (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
+    child_page = next(path for path in pages if child.id in path.name).read_text(encoding="utf-8")
+    target_page = next(path for path in pages if target.id in path.name).read_text(encoding="utf-8")
+
+    assert "Children" in index_html
+    assert parent.id in child_page
+    assert "informs" in child_page
+    assert "Metric context" in child_page
+    assert "Linked from" in target_page
+    assert child.id in target_page

@@ -109,6 +109,8 @@ def build_metadata(
     language: str = "en",
     direction: str = "auto",
     tags: list[str] | None = None,
+    parent_id: str = "",
+    related_decisions: list[Any] | None = None,
 ) -> dict[str, Any]:
     if status not in VALID_STATUSES:
         raise ValueError(f"Unsupported status: {status}")
@@ -132,6 +134,8 @@ def build_metadata(
         "reviewed_on": "",
         "experiment_links": [],
         "tags": tags or [],
+        "parent_id": parent_id,
+        "related_decisions": related_decisions or [],
         "language": language,
         "direction": direction,
     }
@@ -155,6 +159,8 @@ def create_decision(
     language: str = "en",
     direction: str = "auto",
     tags: list[str] | None = None,
+    parent_id: str = "",
+    related_decisions: list[Any] | None = None,
 ) -> DecisionRecord:
     directory = decisions_path(root, config)
     directory.mkdir(parents=True, exist_ok=True)
@@ -176,6 +182,8 @@ def create_decision(
         language=language,
         direction=direction,
         tags=tags,
+        parent_id=parent_id,
+        related_decisions=related_decisions,
     )
     body = render_decision_body(root, config.templates_dir, metadata)
     path = directory / f"{decision_id}-{slugify(title)}.md"

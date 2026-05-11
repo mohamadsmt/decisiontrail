@@ -22,7 +22,10 @@ class DraftDecision:
 
 
 def parse_meeting_notes(path: Path) -> list[DraftDecision]:
-    text = path.read_text(encoding="utf-8")
+    return parse_meeting_text(path.read_text(encoding="utf-8"), source_name=path.name)
+
+
+def parse_meeting_text(text: str, source_name: str = "meeting notes") -> list[DraftDecision]:
     lines = text.splitlines()
     drafts: list[DraftDecision] = []
     current: DraftDecision | None = None
@@ -37,7 +40,7 @@ def parse_meeting_notes(path: Path) -> list[DraftDecision]:
                 current.context = _clean_context(current.context, context_buffer)
                 drafts.append(current)
             title = match.group(1).strip()
-            current = DraftDecision(title=title, context=f"Extracted from {path.name}.")
+            current = DraftDecision(title=title, context=f"Extracted from {source_name}.")
             context_buffer = []
             continue
 

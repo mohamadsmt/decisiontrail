@@ -99,3 +99,74 @@ def test_cli_export_and_parse_meeting(tmp_path: Path) -> None:
     result = runner.invoke(app, ["parse-meeting", str(note), "--path", str(tmp_path)])
     assert result.exit_code == 0
     assert "Test parser" in result.output
+
+
+def test_cli_relationship_commands(tmp_path: Path) -> None:
+    runner.invoke(app, ["init", "--path", str(tmp_path), "--no-sample"])
+    parent = runner.invoke(app, ["new", "Parent decision", "--path", str(tmp_path)])
+    assert parent.exit_code == 0
+
+    child = runner.invoke(
+        app,
+        [
+            "new",
+            "Child decision",
+            "--path",
+            str(tmp_path),
+            "--parent",
+            "DEC-2026-001",
+            "--related",
+            "depends_on:DEC-2026-001",
+        ],
+    )
+    assert child.exit_code == 0
+
+    related = runner.invoke(
+        app,
+        [
+            "relate",
+            "DEC-2026-002",
+            "DEC-2026-001",
+            "--path",
+            str(tmp_path),
+            "--type",
+            "informs",
+            "--note",
+            "Pricing context",
+        ],
+    )
+    assert related.exit_code == 0
+    assert "informs" in related.output
+
+    links = runner.invoke(app, ["links", "DEC-2026-001", "--path", str(tmp_path)])
+    assert links.exit_code == 0
+    assert "Children" in links.output
+    assert "Child decision" in links.output
+    assert "Linked from" in links.output
+    assert "Pricing context" in links.output
+
+    tree = runner.invoke(app, ["tree", "--path", str(tmp_path)])
+    assert tree.exit_code == 0
+    assert "DecisionTrail" in tree.output
+    assert "Parent decision" in tree.output
+    assert "Child decision" in tree.output
+
+
+def test_cli_new_rejects_invalid_relation_type(tmp_path: Path) -> None:
+    runner.invoke(app, ["init", "--path", str(tmp_path), "--no-sample"])
+    runner.invoke(app, ["new", "Parent decision", "--path", str(tmp_path)])
+
+    result = runner.invoke(
+        app,
+        [
+            "new",
+            "Bad relation",
+            "--path",
+            str(tmp_path),
+            "--related",
+            "bad_type:DEC-2026-001",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Relation type must be one of" in result.output

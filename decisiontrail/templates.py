@@ -88,6 +88,8 @@ HTML_INDEX_TEMPLATE = """<!doctype html>
         <h2><a href="{{ item.href }}">{{ item.record.title }}</a></h2>
         <dl>
           <div><dt>Owner</dt><dd>{{ item.record.owner or "Unassigned" }}</dd></div>
+          <div><dt>Parent</dt><dd>{% if item.parent %}{{ item.parent.id }}{% else %}None{% endif %}</dd></div>
+          <div><dt>Children</dt><dd>{{ item.child_count }}</dd></div>
           <div><dt>Date</dt><dd>{{ item.record.decision_date or "Unknown" }}</dd></div>
           <div><dt>Revisit</dt><dd>{{ item.record.revisit_on or "Not set" }}</dd></div>
         </dl>
@@ -120,6 +122,82 @@ HTML_DECISION_TEMPLATE = """<!doctype html>
         {% for label, value in details %}
         <div dir="auto"><dt>{{ label }}</dt><dd>{{ value }}</dd></div>
         {% endfor %}
+      </section>
+      <section class="relationship-grid" aria-label="Decision relationships">
+        <div class="relationship-panel">
+          <h2>Hierarchy</h2>
+          <dl>
+            <div>
+              <dt>Parent</dt>
+              <dd>
+                {% if parent %}
+                <a href="{{ hrefs_by_id[parent.id] }}">{{ parent.id }}</a> <span dir="auto">{{ parent.title }}</span>
+                {% else %}
+                None
+                {% endif %}
+              </dd>
+            </div>
+            <div>
+              <dt>Children</dt>
+              <dd>
+                <ul class="link-list">
+                  {% for child in children %}
+                  <li><a href="{{ hrefs_by_id[child.id] }}">{{ child.id }}</a> <span dir="auto">{{ child.title }}</span></li>
+                  {% else %}
+                  <li>No child decisions.</li>
+                  {% endfor %}
+                </ul>
+              </dd>
+            </div>
+          </dl>
+        </div>
+        <div class="relationship-panel">
+          <h2>Typed links</h2>
+          <dl>
+            <div>
+              <dt>Outgoing</dt>
+              <dd>
+                <ul class="link-list">
+                  {% for relation in outgoing_relations %}
+                  {% set target = records_by_id.get(relation.target_id) %}
+                  <li>
+                    <strong>{{ relation.relation_type|replace("_", " ") }}</strong>
+                    {% if target %}
+                    <a href="{{ hrefs_by_id[target.id] }}">{{ target.id }}</a> <span dir="auto">{{ target.title }}</span>
+                    {% else %}
+                    <span>{{ relation.target_id }}</span>
+                    {% endif %}
+                    {% if relation.note %}<small dir="auto">{{ relation.note }}</small>{% endif %}
+                  </li>
+                  {% else %}
+                  <li>No outgoing links.</li>
+                  {% endfor %}
+                </ul>
+              </dd>
+            </div>
+            <div>
+              <dt>Linked from</dt>
+              <dd>
+                <ul class="link-list">
+                  {% for relation in backlinks %}
+                  {% set source = records_by_id.get(relation.source_id) %}
+                  <li>
+                    <strong>{{ relation.relation_type|replace("_", " ") }}</strong>
+                    {% if source %}
+                    <a href="{{ hrefs_by_id[source.id] }}">{{ source.id }}</a> <span dir="auto">{{ source.title }}</span>
+                    {% else %}
+                    <span>{{ relation.source_id }}</span>
+                    {% endif %}
+                    {% if relation.note %}<small dir="auto">{{ relation.note }}</small>{% endif %}
+                  </li>
+                  {% else %}
+                  <li>No backlinks.</li>
+                  {% endfor %}
+                </ul>
+              </dd>
+            </div>
+          </dl>
+        </div>
       </section>
       <section class="body" dir="auto">
         {{ body_html|safe }}
@@ -239,6 +317,39 @@ dd { margin: 0; }
 }
 
 .top-nav { margin-block-end: 24px; }
+
+.relationship-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  margin-block-end: 28px;
+}
+
+.relationship-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+}
+
+.relationship-panel h2 {
+  margin-block-start: 0;
+}
+
+.link-list {
+  margin: 0;
+  padding-inline-start: 1.2rem;
+}
+
+.link-list li {
+  display: grid;
+  gap: 3px;
+  padding-block: 5px;
+}
+
+.link-list small {
+  color: var(--muted);
+}
 """
 
 

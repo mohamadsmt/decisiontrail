@@ -11,8 +11,18 @@ from rich.table import Table
 
 from decisiontrail.config import dump_default_config, load_config
 from decisiontrail.export import export_html
-from decisiontrail.models import VALID_DIRECTIONS, VALID_STATUSES
+from decisiontrail.models import VALID_DIRECTIONS, VALID_RELATION_TYPES, VALID_STATUSES
 from decisiontrail.parser import parse_meeting_notes
+from decisiontrail.relationships import (
+    append_relation,
+    backlinks,
+    children_of,
+    outgoing_relations,
+    parse_relation_args,
+    parse_relation_line,
+    relation_to_metadata,
+    relation_type_label,
+)
 from decisiontrail.review import (
     assumption_items,
     missing_metrics,
@@ -129,6 +139,8 @@ def new(
     language: str = typer.Option("en", "--language", help="Content language code."),
     direction: str = typer.Option("auto", "--direction", help="Text direction: auto, ltr, or rtl."),
     revisit_on: str = typer.Option("", "--revisit-on", help="ISO revisit date."),
+    parent: str = typer.Option("", "--parent", help="Parent decision ID."),
+    related: Optional[list[str]] = typer.Option(None, "--related", help="Typed relation, e.g. depends_on:DEC-2026-002."),
 ) -> None:
     """Create a new decision record."""
     if status not in VALID_STATUSES:
@@ -138,6 +150,16 @@ def new(
 
     root, config = _load(path)
     ensure_template(root, config)
+    records = load_decisions(root, config)
+    known_ids = {record.id for record in records}
+    related_decisions = parse_relation_args(related or [])
+    if parent and parent not in known_ids:
+        raise typer.BadParameter(f"Unknown parent decision: {parent}")
+    for relation in related_decisions:
+        if relation.relation_type not in VALID_RELATION_TYPES:
+            raise typer.BadParameter(f"Relation type must be one of: {', '.join(sorted(VALID_RELATION_TYPES))}.")
+        if relation.target_id not in known_ids:
+            raise typer.BadParameter(f"Unknown related decision: {relation.target_id}")
     record = create_decision(
         root,
         config,
@@ -147,6 +169,8 @@ def new(
         language=language,
         direction=direction,
         revisit_on=revisit_on,
+        parent_id=parent,
+        related_decisions=[relation_to_metadata(relation) for relation in related_decisions],
     )
     console.print(f"Created [bold]{record.id}[/bold]: {record.path}")
 
@@ -173,10 +197,11 @@ def list_decisions(
     table.add_column("ID")
     table.add_column("Status")
     table.add_column("Owner")
+    table.add_column("Parent")
     table.add_column("Revisit")
     table.add_column("Title")
     for record in records:
-        table.add_row(record.id, record.status, record.owner or "-", str(record.revisit_on or "-"), record.title)
+        table.add_row(record.id, record.status, record.owner or "-", record.parent_id or "-", str(record.revisit_on or "-"), record.title)
     console.print(table)
 
 
@@ -251,6 +276,118 @@ def review(
     record.body = record.body.rstrip() + f"\n\nReviewed on {review_date}: {outcome}\n"
     write_decision(record)
     console.print(f"Reviewed [bold]{record.id}[/bold].")
+
+
+@app.command()
+def relate(
+    source_id: str,
+    target_id: str,
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Project path."),
+    relation_type: str = typer.Option("related_to", "--type", help="Relation type."),
+    note: str = typer.Option("", "--note", help="Optional relation note."),
+) -> None:
+    """Add a typed relation from one decision to another."""
+    root, config = _load(path)
+    records = load_decisions(root, config)
+    source = load_decision(root, config, source_id)
+    target = load_decision(root, config, target_id)
+    relation = parse_relation_line(f"{relation_type}:{target.id}" + (f" | {note}" if note else ""), source_id=source.id)
+    if relation is None:
+        raise typer.BadParameter("Relation could not be parsed.")
+    temp_records = [record for record in records if record.id != source.id] + [source]
+    if source.id == target.id:
+        raise typer.BadParameter("A decision cannot relate to itself.")
+    if relation_type not in VALID_RELATION_TYPES:
+        raise typer.BadParameter(f"Relation type must be one of: {', '.join(sorted(VALID_RELATION_TYPES))}.")
+    append_relation(source, relation)
+    issues = validate_record(source, records=temp_records)
+    relation_issues = [issue for issue in issues if "related_decisions" in issue or "relation type" in issue]
+    if relation_issues:
+        raise typer.BadParameter("; ".join(relation_issues))
+    write_decision(source)
+    console.print(f"Related [bold]{source.id}[/bold] {relation_type_label(relation.relation_type)} [bold]{target.id}[/bold].")
+
+
+@app.command()
+def links(
+    identifier: str,
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Project path."),
+) -> None:
+    """Show parent, children, outgoing links, and backlinks for a decision."""
+    root, config = _load(path)
+    records = load_decisions(root, config)
+    record = load_decision(root, config, identifier)
+    records_by_id = {item.id: item for item in records}
+
+    console.print(f"[bold]{record.id}[/bold] {record.title}")
+    parent = records_by_id.get(record.parent_id) if record.parent_id else None
+    console.print(f"Parent: {parent.id + ' ' + parent.title if parent else '-'}")
+    _print_link_rows("Children", [(child.id, "child", child.title, "") for child in children_of(records, record.id)])
+    _print_link_rows(
+        "Outgoing links",
+        [
+            (
+                relation.target_id,
+                relation.relation_type,
+                records_by_id.get(relation.target_id).title if records_by_id.get(relation.target_id) else "",
+                relation.note,
+            )
+            for relation in outgoing_relations(record)
+        ],
+    )
+    _print_link_rows(
+        "Linked from",
+        [
+            (
+                relation.source_id,
+                relation.relation_type,
+                records_by_id.get(relation.source_id).title if records_by_id.get(relation.source_id) else "",
+                relation.note,
+            )
+            for relation in backlinks(records, record.id)
+        ],
+    )
+
+
+@app.command()
+def tree(path: Path = typer.Option(Path("."), "--path", "-p", help="Project path.")) -> None:
+    """Show the decision hierarchy."""
+    from rich.tree import Tree as RichTree
+
+    root, config = _load(path)
+    records = load_decisions(root, config)
+    by_parent: dict[str, list] = {}
+    ids = {record.id for record in records}
+    for record in records:
+        by_parent.setdefault(record.parent_id, []).append(record)
+
+    rich_tree = RichTree("DecisionTrail")
+    rendered: set[str] = set()
+
+    def add_nodes(parent_node, parent_id: str, seen: set[str]) -> None:
+        for record in by_parent.get(parent_id, []):
+            label = f"{record.id} {record.title}"
+            node = parent_node.add(label)
+            rendered.add(record.id)
+            if record.id in seen:
+                node.add("cycle detected")
+                continue
+            add_nodes(node, record.id, seen | {record.id})
+
+    add_nodes(rich_tree, "", set())
+    for orphan_parent_id in sorted(parent_id for parent_id in by_parent if parent_id and parent_id not in ids):
+        orphan_node = rich_tree.add(f"Unresolved parent {orphan_parent_id}")
+        add_nodes(orphan_node, orphan_parent_id, set())
+    remaining = [record for record in records if record.id not in rendered]
+    if remaining:
+        detached_node = rich_tree.add("Cycles or detached records")
+        for record in remaining:
+            if record.id in rendered:
+                continue
+            node = detached_node.add(f"{record.id} {record.title}")
+            rendered.add(record.id)
+            add_nodes(node, record.id, {record.id})
+    console.print(rich_tree)
 
 
 @app.command()
@@ -420,7 +557,7 @@ def _print_audit(
     overdue = weekly_review(records)["due"]
 
     for record in records:
-        issues.extend(validate_record(record))
+        issues.extend(validate_record(record, records=records))
         result = score_decision(record)
         if result.score < config.score_threshold:
             low_scores.append(result)
@@ -451,6 +588,17 @@ def _print_audit(
     else:
         console.print("Audit completed with warning-only behavior.")
     return failed
+
+
+def _print_link_rows(title: str, rows: list[tuple[str, str, str, str]]) -> None:
+    table = Table(title=title)
+    table.add_column("ID")
+    table.add_column("Type")
+    table.add_column("Title")
+    table.add_column("Note")
+    for row in rows:
+        table.add_row(*row)
+    console.print(table)
 
 
 if __name__ == "__main__":

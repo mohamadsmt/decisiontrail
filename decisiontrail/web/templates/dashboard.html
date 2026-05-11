@@ -6,7 +6,13 @@
     <h1>Decision dashboard</h1>
     <p>Local records in <code>{{ root }}</code></p>
   </div>
-  <a class="button" href="/decisions/new">Add decision</a>
+  <div class="actions inline-actions">
+    <form method="post" action="/export-html">
+      <button class="button" type="submit">Export HTML</button>
+    </form>
+    <a href="/audit">Audit</a>
+    <a class="button" href="/decisions/new">Add decision</a>
+  </div>
 </section>
 
 <section class="stats" aria-label="Decision health summary">
@@ -39,6 +45,8 @@
           <th>Title</th>
           <th>Status</th>
           <th>Owner</th>
+          <th>Parent</th>
+          <th>Children</th>
           <th>Score</th>
           <th>Revisit</th>
           <th>Language</th>
@@ -51,12 +59,14 @@
           <td dir="auto">{{ record.title }}</td>
           <td>{{ record.status }}</td>
           <td dir="auto">{{ record.owner or "Unassigned" }}</td>
+          <td>{{ record.parent_id or "-" }}</td>
+          <td>{{ records|selectattr("parent_id", "equalto", record.id)|list|length }}</td>
           <td>{{ scores[record.id].score }}</td>
           <td>{{ record.revisit_on or "-" }}</td>
           <td>{{ record.language }} / {{ record.direction }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="7">No decision records match the current filters.</td></tr>
+        <tr><td colspan="9">No decision records match the current filters.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -78,7 +88,7 @@
     <h2>Unvalidated assumptions</h2>
     <ul class="compact-list">
       {% for item in report.unvalidated_assumptions %}
-      <li><a href="/decisions/{{ item.decision_id }}">{{ item.decision_id }}</a><span dir="auto">{{ item.text }}</span></li>
+      <li><a href="/decisions/{{ item.decision_id }}#assumptions">{{ item.decision_id }}</a><span dir="auto">{{ item.text }}</span></li>
       {% else %}
       <li>No unvalidated assumptions.</li>
       {% endfor %}

@@ -12,6 +12,7 @@ from decisiontrail.models import (
     contains_rtl_text,
     is_present,
 )
+from decisiontrail.relationships import relation_errors
 
 
 @dataclass(frozen=True)
@@ -117,7 +118,11 @@ def missing_metrics(records: list[DecisionRecord]) -> list[DecisionRecord]:
     return [record for record in records if not record.success_metrics]
 
 
-def validate_record(record: DecisionRecord, today: date | None = None) -> list[str]:
+def validate_record(
+    record: DecisionRecord,
+    today: date | None = None,
+    records: list[DecisionRecord] | None = None,
+) -> list[str]:
     issues: list[str] = []
     required = ["id", "title", "status", "date"]
     for key in required:
@@ -138,6 +143,7 @@ def validate_record(record: DecisionRecord, today: date | None = None) -> list[s
         issues.append(f"{record.id}: RTL content should not be marked ltr")
     if is_overdue(record, today):
         issues.append(f"{record.id}: revisit date has passed and no outcome is recorded")
+    issues.extend(relation_errors(record, records))
     return issues
 
 

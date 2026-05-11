@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}HTML export{% endblock %}
+{% block content %}
+<section class="page-title">
+  <div>
+    <h1>HTML export</h1>
+    <p>Exported {{ pages|length }} files to <code>{{ output_dir }}</code></p>
+  </div>
+  <a class="button" href="/exports/index.html">Open archive</a>
+</section>
+
+<section class="panel">
+  <h2>Generated files</h2>
+  <ul class="compact-list">
+    {% for page in pages %}
+    <li><a href="{{ page.href }}">{{ page.name }}</a><span><code>{{ page.path }}</code></span></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}

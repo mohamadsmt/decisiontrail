@@ -1,11 +1,12 @@
 {% extends "base.html" %}
-{% block title %}New decision{% endblock %}
+{% block title %}Edit {{ record.id }}{% endblock %}
 {% block content %}
 <section class="page-title">
   <div>
-    <h1>Add decision</h1>
-    <p>Create a Markdown/YAML decision record from the local web UI.</p>
+    <p class="meta-line">{{ record.id }}</p>
+    <h1>Edit decision</h1>
   </div>
+  <a href="/decisions/{{ record.id }}">Back to detail</a>
 </section>
 
 {% if errors %}
@@ -19,7 +20,7 @@
 </section>
 {% endif %}
 
-<form class="decision-form panel" method="post" action="/decisions">
+<form class="decision-form panel" method="post" action="/decisions/{{ record.id }}/edit">
   <div class="field wide">
     <label for="title">Title</label>
     <input id="title" name="title" value="{{ data.title }}" dir="auto" required>
@@ -56,8 +57,10 @@
     <label for="parent_id">Parent decision</label>
     <select id="parent_id" name="parent_id">
       <option value="">No parent</option>
-      {% for record in records %}
-      <option value="{{ record.id }}" {% if data.parent_id == record.id %}selected{% endif %}>{{ record.id }} · {{ record.title }}</option>
+      {% for item in records %}
+      {% if item.id != record.id %}
+      <option value="{{ item.id }}" {% if data.parent_id == item.id %}selected{% endif %}>{{ item.id }} · {{ item.title }}</option>
+      {% endif %}
       {% endfor %}
     </select>
   </div>
@@ -79,7 +82,7 @@
   </div>
   <div class="field wide">
     <label for="assumptions">Assumptions</label>
-    <textarea id="assumptions" name="assumptions" rows="4" dir="auto" placeholder="One assumption per line">{{ data.assumptions }}</textarea>
+    <textarea id="assumptions" name="assumptions" rows="4" dir="auto" placeholder="validated: assumption text | optional note">{{ data.assumptions }}</textarea>
   </div>
   <div class="field wide">
     <label for="success_metrics">Success metrics</label>
@@ -94,9 +97,13 @@
     <textarea id="related_decisions" name="related_decisions" rows="4" dir="auto" placeholder="depends_on: DEC-2026-001 | optional note">{{ data.related_decisions }}</textarea>
     <p class="help-text">One relation per line. Supported types: {{ valid_relation_types|join(", ") }}.</p>
   </div>
+  <div class="field wide">
+    <label for="body">Markdown body</label>
+    <textarea id="body" name="body" rows="16" dir="auto">{{ data.body }}</textarea>
+  </div>
   <div class="actions">
-    <button class="button" type="submit">Create decision</button>
-    <a href="/">Cancel</a>
+    <button class="button" type="submit">Save changes</button>
+    <a href="/decisions/{{ record.id }}">Cancel</a>
   </div>
 </form>
 {% endblock %}
