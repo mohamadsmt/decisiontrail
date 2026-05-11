@@ -1,0 +1,251 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from jinja2 import Environment, FileSystemLoader, Template
+
+
+DEFAULT_DECISION_BODY_TEMPLATE = """# {{ title }}
+
+## Context
+
+{{ context or "TODO: Describe the situation that made this decision necessary." }}
+
+## Options Considered
+
+{% if options -%}
+{% for option in options -%}
+- {{ option }}
+{% endfor -%}
+{% else -%}
+- TODO: Add the first option.
+- TODO: Add the second option.
+{% endif %}
+
+## Decision
+
+{{ decision or "TODO: State the selected option." }}
+
+## Rationale
+
+{% if rationale -%}
+{% for item in rationale -%}
+- {{ item }}
+{% endfor -%}
+{% else -%}
+- TODO: Explain why this option was selected.
+{% endif %}
+
+## Assumptions
+
+{% if assumptions -%}
+{% for assumption in assumptions -%}
+- {{ assumption.text if assumption is mapping else assumption }}
+{% endfor -%}
+{% else -%}
+- TODO: Add the main assumption behind this decision.
+{% endif %}
+
+## Success Metrics
+
+{% if success_metrics -%}
+{% for metric in success_metrics -%}
+- {{ metric }}
+{% endfor -%}
+{% else -%}
+- TODO: Add at least one success metric.
+{% endif %}
+
+## Outcome Review
+
+TODO: Add the measured outcome after the revisit date.
+"""
+
+
+HTML_INDEX_TEMPLATE = """<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DecisionTrail</title>
+  <style>{{ css }}</style>
+</head>
+<body>
+  <main class="shell">
+    <header class="page-header">
+      <p class="eyebrow">DecisionTrail</p>
+      <h1>Decision records</h1>
+      <p>{{ records|length }} records exported locally.</p>
+    </header>
+    <section class="record-grid" aria-label="Decision records">
+      {% for item in records %}
+      <article class="record-card" dir="auto">
+        <div class="meta-row">
+          <span>{{ item.record.id }}</span>
+          <span>{{ item.record.status }}</span>
+        </div>
+        <h2><a href="{{ item.href }}">{{ item.record.title }}</a></h2>
+        <dl>
+          <div><dt>Owner</dt><dd>{{ item.record.owner or "Unassigned" }}</dd></div>
+          <div><dt>Date</dt><dd>{{ item.record.decision_date or "Unknown" }}</dd></div>
+          <div><dt>Revisit</dt><dd>{{ item.record.revisit_on or "Not set" }}</dd></div>
+        </dl>
+      </article>
+      {% endfor %}
+    </section>
+  </main>
+</body>
+</html>
+"""
+
+
+HTML_DECISION_TEMPLATE = """<!doctype html>
+<html lang="{{ record.language }}" dir="{{ html_dir }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ record.id }} - {{ record.title }}</title>
+  <style>{{ css }}</style>
+</head>
+<body>
+  <main class="shell record-page" dir="{{ content_dir }}">
+    <nav class="top-nav" dir="ltr"><a href="index.html">Decision records</a></nav>
+    <article>
+      <header class="page-header" dir="auto">
+        <p class="eyebrow">{{ record.id }} · {{ record.status }}</p>
+        <h1>{{ record.title }}</h1>
+      </header>
+      <section class="details" aria-label="Decision metadata">
+        {% for label, value in details %}
+        <div dir="auto"><dt>{{ label }}</dt><dd>{{ value }}</dd></div>
+        {% endfor %}
+      </section>
+      <section class="body" dir="auto">
+        {{ body_html|safe }}
+      </section>
+    </article>
+  </main>
+</body>
+</html>
+"""
+
+
+HTML_CSS = """
+:root {
+  color-scheme: light;
+  --bg: #f7f4ee;
+  --surface: #ffffff;
+  --text: #1d2525;
+  --muted: #697272;
+  --line: #d9d6cf;
+  --accent: #176b5b;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  line-height: 1.6;
+}
+
+a { color: var(--accent); text-decoration-thickness: 0.08em; text-underline-offset: 0.2em; }
+
+.shell {
+  width: min(1080px, calc(100% - 32px));
+  margin-inline: auto;
+  padding-block: 40px 64px;
+}
+
+.page-header {
+  border-block-end: 1px solid var(--line);
+  padding-block-end: 24px;
+  margin-block-end: 24px;
+}
+
+.eyebrow {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+h1, h2, h3 { line-height: 1.2; letter-spacing: 0; }
+h1 { font-size: clamp(2rem, 4vw, 3.4rem); margin: 0; }
+h2 { font-size: 1.2rem; margin-block: 12px; }
+
+.record-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.record-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+}
+
+.meta-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+dl, .details {
+  display: grid;
+  gap: 10px;
+}
+
+.details {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  margin-block-end: 28px;
+}
+
+dt {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+dd { margin: 0; }
+
+.body {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: clamp(18px, 4vw, 34px);
+}
+
+.body h1:first-child { display: none; }
+.body p, .body li { max-width: 76ch; }
+.body blockquote {
+  margin-inline: 0;
+  padding-inline-start: 1rem;
+  border-inline-start: 4px solid var(--accent);
+  color: var(--muted);
+}
+
+.top-nav { margin-block-end: 24px; }
+"""
+
+
+def render_decision_body(root: Path, templates_dir: str, context: dict[str, Any]) -> str:
+    template_path = root / templates_dir / "decision.md.j2"
+    if template_path.exists():
+        env = Environment(loader=FileSystemLoader(template_path.parent), autoescape=False)
+        template = env.get_template(template_path.name)
+        return template.render(**context).strip() + "\n"
+    return Template(DEFAULT_DECISION_BODY_TEMPLATE).render(**context).strip() + "\n"

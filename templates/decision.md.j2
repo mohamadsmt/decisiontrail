@@ -1,0 +1,54 @@
+# {{ title }}
+
+## Context
+
+{{ context or "TODO: Describe the situation that made this decision necessary." }}
+
+## Options Considered
+
+{% if options -%}
+{% for option in options -%}
+- {{ option }}
+{% endfor -%}
+{% else -%}
+- TODO: Add the first option.
+- TODO: Add the second option.
+{% endif %}
+
+## Decision
+
+{{ decision or "TODO: State the selected option." }}
+
+## Rationale
+
+{% if rationale -%}
+{% for item in rationale -%}
+- {{ item }}
+{% endfor -%}
+{% else -%}
+- TODO: Explain why this option was selected.
+{% endif %}
+
+## Assumptions
+
+{% if assumptions -%}
+{% for assumption in assumptions -%}
+- {{ assumption.text if assumption is mapping else assumption }}
+{% endfor -%}
+{% else -%}
+- TODO: Add the main assumption behind this decision.
+{% endif %}
+
+## Success Metrics
+
+{% if success_metrics -%}
+{% for metric in success_metrics -%}
+- {{ metric }}
+{% endfor -%}
+{% else -%}
+- TODO: Add at least one success metric.
+{% endif %}
+
+## Outcome Review
+
+TODO: Add the measured outcome after the revisit date.
