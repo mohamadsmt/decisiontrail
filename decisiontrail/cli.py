@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import webbrowser
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -320,6 +321,28 @@ def check(
     failed = _print_audit(root, config, fail_on_overdue=fail_on_overdue, fail_under_score=fail_under_score)
     if failed:
         raise typer.Exit(1)
+
+
+@app.command()
+def ui(
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Project path."),
+    host: str = typer.Option("127.0.0.1", "--host", help="Host to bind. Defaults to localhost only."),
+    port: int = typer.Option(8765, "--port", help="Port to bind."),
+    open_browser: bool = typer.Option(False, "--open", help="Open the local UI in the default browser."),
+) -> None:
+    """Start the local browser UI."""
+    import uvicorn
+
+    from decisiontrail.web.app import create_web_app
+
+    root, config = _load(path)
+    ensure_template(root, config)
+    url = f"http://{host}:{port}"
+    if open_browser:
+        webbrowser.open(url)
+    console.print(f"Starting DecisionTrail UI at [bold]{url}[/bold]")
+    console.print(f"Using local project path: [bold]{root}[/bold]")
+    uvicorn.run(create_web_app(root), host=host, port=port)
 
 
 @run_app.command("weekly-review")
