@@ -8,6 +8,7 @@ import yaml
 
 
 CONFIG_FILE = "decisiontrail.yml"
+LOCAL_CONFIG_FILE = "decisiontrail.local.yml"
 
 
 @dataclass(frozen=True)
@@ -34,14 +35,22 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
+def _load_config_file(path: Path) -> dict[str, Any]:
+    loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(loaded, dict):
+        raise ValueError(f"{path.name} must contain a YAML mapping.")
+    return loaded
+
+
 def load_config(root: Path) -> DecisionTrailConfig:
-    config_path = root / CONFIG_FILE
     data: dict[str, Any] = {}
+    config_path = root / CONFIG_FILE
     if config_path.exists():
-        loaded = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-        if not isinstance(loaded, dict):
-            raise ValueError(f"{CONFIG_FILE} must contain a YAML mapping.")
-        data = loaded
+        data = _load_config_file(config_path)
+
+    local_config_path = root / LOCAL_CONFIG_FILE
+    if local_config_path.exists():
+        data = {**data, **_load_config_file(local_config_path)}
 
     merged = {**DEFAULT_CONFIG, **data}
     return DecisionTrailConfig(
