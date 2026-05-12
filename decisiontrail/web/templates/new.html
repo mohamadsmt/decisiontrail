@@ -20,83 +20,99 @@
 {% endif %}
 
 <form class="decision-form panel" method="post" action="/decisions">
-  <div class="field wide">
-    <label for="title">Title</label>
-    <input id="title" name="title" value="{{ data.title }}" dir="auto" required>
-  </div>
-  <div class="field">
-    <label for="owner">Owner</label>
-    <input id="owner" name="owner" value="{{ data.owner }}" dir="auto">
-  </div>
-  <div class="field">
-    <label for="status">Status</label>
-    <select id="status" name="status">
-      {% for status in valid_statuses %}
-      <option value="{{ status }}" {% if data.status == status %}selected{% endif %}>{{ status }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div class="field">
-    <label for="language">Language</label>
-    <input id="language" name="language" value="{{ data.language }}" placeholder="en or fa">
-  </div>
-  <div class="field">
-    <label for="direction">Direction</label>
-    <select id="direction" name="direction">
-      {% for direction in valid_directions %}
-      <option value="{{ direction }}" {% if data.direction == direction %}selected{% endif %}>{{ direction }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div class="field">
-    <label for="revisit_on">Revisit on</label>
-    <input id="revisit_on" name="revisit_on" value="{{ data.revisit_on }}" placeholder="YYYY-MM-DD">
-  </div>
-  <div class="field wide">
-    <label for="parent_id">Parent decision</label>
-    <select id="parent_id" name="parent_id">
-      <option value="">No parent</option>
-      {% for record in records %}
-      <option value="{{ record.id }}" {% if data.parent_id == record.id %}selected{% endif %}>{{ record.id }} · {{ record.title }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div class="field wide">
-    <label for="context">Context</label>
-    <textarea id="context" name="context" rows="4" dir="auto">{{ data.context }}</textarea>
-  </div>
-  <div class="field wide">
-    <label for="options">Options considered</label>
-    <textarea id="options" name="options" rows="4" dir="auto" placeholder="One option per line">{{ data.options }}</textarea>
-  </div>
-  <div class="field wide">
-    <label for="decision">Decision</label>
-    <textarea id="decision" name="decision" rows="3" dir="auto">{{ data.decision }}</textarea>
-  </div>
-  <div class="field wide">
-    <label for="rationale">Rationale</label>
-    <textarea id="rationale" name="rationale" rows="4" dir="auto" placeholder="One reason per line">{{ data.rationale }}</textarea>
-  </div>
-  <div class="field wide">
-    <label for="assumptions">Assumptions</label>
-    <textarea id="assumptions" name="assumptions" rows="4" dir="auto" placeholder="One assumption per line">{{ data.assumptions }}</textarea>
-  </div>
-  <div class="field wide">
-    <label for="success_metrics">Success metrics</label>
-    <textarea id="success_metrics" name="success_metrics" rows="3" dir="auto" placeholder="One metric per line">{{ data.success_metrics }}</textarea>
-  </div>
-  <div class="field wide">
-    <label for="tags">Tags</label>
-    <textarea id="tags" name="tags" rows="2" dir="auto" placeholder="One tag per line">{{ data.tags }}</textarea>
-  </div>
-  <div class="field wide">
-    <label for="related_decisions">Related decisions</label>
-    <textarea id="related_decisions" name="related_decisions" rows="4" dir="auto" placeholder="depends_on: DEC-2026-001 | optional note">{{ data.related_decisions }}</textarea>
-    <p class="help-text">One relation per line. Supported types: {{ valid_relation_types|join(", ") }}.</p>
-  </div>
+  <section class="form-section" aria-labelledby="new-decision-basics">
+    <h2 id="new-decision-basics">Basics</h2>
+    <div class="field wide">
+      <label for="title">Title</label>
+      <input id="title" name="title" value="{{ data.title }}" dir="auto" required>
+    </div>
+    <div class="field">
+      <label for="owner">Owner</label>
+      <input id="owner" name="owner" value="{{ data.owner }}" dir="auto">
+    </div>
+    <div class="field">
+      <label for="status">Status</label>
+      <select id="status" name="status">
+        {% for status in valid_statuses %}
+        <option value="{{ status }}" {% if data.status == status %}selected{% endif %}>{{ status }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="revisit_on">Revisit on</label>
+      <input id="revisit_on" name="revisit_on" value="{{ data.revisit_on }}" placeholder="YYYY-MM-DD">
+    </div>
+    <div class="field">
+      <label for="language">Language</label>
+      <input id="language" name="language" value="{{ data.language }}" placeholder="en or fa">
+    </div>
+    <div class="field">
+      <label for="direction">Direction</label>
+      <select id="direction" name="direction">
+        {% for direction in valid_directions %}
+        <option value="{{ direction }}" {% if data.direction == direction %}selected{% endif %}>{{ direction }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </section>
+
+  <section class="form-section" aria-labelledby="new-decision-content">
+    <h2 id="new-decision-content">Decision content</h2>
+    <div class="field wide">
+      <label for="context">Context</label>
+      <textarea id="context" name="context" rows="4" dir="auto">{{ data.context }}</textarea>
+    </div>
+    <div class="field wide">
+      <label for="options">Options considered</label>
+      <textarea id="options" name="options" rows="4" dir="auto" placeholder="One option per line">{{ data.options }}</textarea>
+    </div>
+    <div class="field wide">
+      <label for="decision">Decision</label>
+      <textarea id="decision" name="decision" rows="3" dir="auto">{{ data.decision }}</textarea>
+    </div>
+    <div class="field wide">
+      <label for="rationale">Rationale</label>
+      <textarea id="rationale" name="rationale" rows="4" dir="auto" placeholder="One reason per line">{{ data.rationale }}</textarea>
+    </div>
+  </section>
+
+  <section class="form-section" aria-labelledby="new-decision-tracking">
+    <h2 id="new-decision-tracking">Tracking</h2>
+    <div class="field wide">
+      <label for="assumptions">Assumptions</label>
+      <textarea id="assumptions" name="assumptions" rows="4" dir="auto" placeholder="One assumption per line">{{ data.assumptions }}</textarea>
+    </div>
+    <div class="field wide">
+      <label for="success_metrics">Success metrics</label>
+      <textarea id="success_metrics" name="success_metrics" rows="3" dir="auto" placeholder="One metric per line">{{ data.success_metrics }}</textarea>
+    </div>
+    <div class="field wide">
+      <label for="tags">Tags</label>
+      <textarea id="tags" name="tags" rows="2" dir="auto" placeholder="One tag per line">{{ data.tags }}</textarea>
+    </div>
+  </section>
+
+  <section class="form-section" aria-labelledby="new-decision-relationships">
+    <h2 id="new-decision-relationships">Relationships</h2>
+    <div class="field wide">
+      <label for="parent_id">Parent decision</label>
+      <select id="parent_id" name="parent_id">
+        <option value="">No parent</option>
+        {% for record in records %}
+        <option value="{{ record.id }}" {% if data.parent_id == record.id %}selected{% endif %}>{{ record.id }} · {{ record.title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field wide">
+      <label for="related_decisions">Related decisions</label>
+      <textarea id="related_decisions" name="related_decisions" rows="4" dir="auto" placeholder="depends_on: DEC-2026-001 | optional note">{{ data.related_decisions }}</textarea>
+      <p class="help-text">One relation per line. Supported types: {{ valid_relation_types|join(", ") }}.</p>
+    </div>
+  </section>
+
   <div class="actions">
     <button class="button" type="submit">Create decision</button>
-    <a href="/">Cancel</a>
+    <a class="button-secondary" href="/">Cancel</a>
   </div>
 </form>
 {% endblock %}

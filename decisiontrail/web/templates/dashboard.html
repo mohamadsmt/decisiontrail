@@ -6,16 +6,15 @@
     <h1>Decision dashboard</h1>
     <p>Local records in <code>{{ root }}</code></p>
   </div>
-  <div class="actions inline-actions">
+  <div class="page-actions">
     <form method="post" action="/export-html">
-      <button class="button" type="submit">Export HTML</button>
+      <button class="button-secondary" type="submit">Export HTML</button>
     </form>
-    <a href="/audit">Audit</a>
     <a class="button" href="/decisions/new">Add decision</a>
   </div>
 </section>
 
-<section class="stats" aria-label="Decision health summary">
+<section class="metric-strip" aria-label="Decision health summary">
   <article><span>{{ records|length }}</span><strong>Total records</strong></article>
   <article><span>{{ report.due|length }}</span><strong>Due reviews</strong></article>
   <article><span>{{ report.missing_metrics|length }}</span><strong>Missing metrics</strong></article>
@@ -57,7 +56,7 @@
         <tr>
           <td><a href="/decisions/{{ record.id }}">{{ record.id }}</a></td>
           <td dir="auto">{{ record.title }}</td>
-          <td>{{ record.status }}</td>
+          <td><span class="status-pill">{{ record.status }}</span></td>
           <td dir="auto">{{ record.owner or "Unassigned" }}</td>
           <td>{{ record.parent_id or "-" }}</td>
           <td>{{ records|selectattr("parent_id", "equalto", record.id)|list|length }}</td>
@@ -65,12 +64,19 @@
           <td>{{ record.revisit_on or "-" }}</td>
           <td>{{ record.language }} / {{ record.direction }}</td>
         </tr>
-        {% else %}
-        <tr><td colspan="9">No decision records match the current filters.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {% if not filtered_records %}
+  <div class="empty-state">
+    <div>
+      <strong>No decision records match these filters.</strong>
+      <p>Clear the filters or create a new local decision record.</p>
+    </div>
+    <a class="button" href="/decisions/new">Add decision</a>
+  </div>
+  {% endif %}
 </section>
 
 <section class="grid-two">

@@ -31,14 +31,17 @@
 {% endif %}
 
 <form class="panel decision-form" method="post" action="/meeting-parser">
-  <div class="field wide">
-    <label for="meeting_text">Meeting notes</label>
-    <textarea id="meeting_text" name="meeting_text" rows="12" dir="auto">{{ meeting_text }}</textarea>
-  </div>
+  <section class="form-section" aria-labelledby="meeting-notes-section">
+    <h2 id="meeting-notes-section">Notes</h2>
+    <div class="field wide">
+      <label for="meeting_text">Meeting notes</label>
+      <textarea id="meeting_text" name="meeting_text" rows="12" dir="auto">{{ meeting_text }}</textarea>
+    </div>
+  </section>
 
   {% if drafts %}
-  <section class="wide">
-    <h2>Draft decisions</h2>
+  <section class="form-section" aria-labelledby="draft-decisions-section">
+    <h2 id="draft-decisions-section">Draft decisions</h2>
     <ul class="compact-list">
       {% for draft in drafts %}
       <li>
@@ -54,7 +57,7 @@
   {% endif %}
 
   <div class="actions">
-    <button class="button-light" type="submit" name="action" value="preview">Preview drafts</button>
+    <button class="button-secondary" type="submit" name="action" value="preview">Preview drafts</button>
     <button class="button" type="submit" name="action" value="create">Create selected</button>
   </div>
 </form>

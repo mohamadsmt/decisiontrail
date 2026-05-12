@@ -3,22 +3,20 @@
 {% block content %}
 <section class="page-title">
   <div dir="auto">
-    <p class="meta-line">{{ record.id }} · {{ record.status }}</p>
+    <p class="meta-line">{{ record.id }} · <span class="status-pill">{{ record.status }}</span> · {{ record.language }} / {{ record.direction }}</p>
     <h1>{{ record.title }}</h1>
   </div>
-  <div class="actions inline-actions">
-    <a href="/decisions/{{ record.id }}/edit">Edit decision</a>
+  <div class="page-actions">
+    <a class="button-secondary" href="/decisions/{{ record.id }}/edit">Edit decision</a>
     <a class="button" href="/decisions/new?parent={{ record.id }}">Add child decision</a>
-    <a href="/decisions/new">Add decision</a>
+    <a class="button-secondary" href="/decisions/new">Add decision</a>
   </div>
 </section>
 
-<section class="stats" aria-label="Decision detail summary">
+<section class="metric-strip" aria-label="Decision detail summary">
   <article><span>{{ score.score }}</span><strong>Score</strong></article>
   <article><span>{{ record.owner or "-" }}</span><strong>Owner</strong></article>
   <article><span>{{ record.revisit_on or "-" }}</span><strong>Revisit</strong></article>
-  <article><span>{{ record.language }}</span><strong>Language</strong></article>
-  <article><span>{{ record.direction }}</span><strong>Direction</strong></article>
 </section>
 
 {% if issues %}
@@ -90,7 +88,7 @@
               {% if relation.note %}<small dir="auto">{{ relation.note }}</small>{% endif %}
               <form class="inline-form" method="post" action="/decisions/{{ record.id }}/relations/remove">
                 <input type="hidden" name="relation_index" value="{{ loop.index0 }}">
-                <button class="button-light" type="submit">Remove</button>
+                <button class="button-secondary" type="submit">Remove</button>
               </form>
             </li>
             {% else %}
@@ -145,7 +143,7 @@
         <label for="relation_note">Note</label>
         <input id="relation_note" name="note" dir="auto">
       </div>
-      <button class="button-light" type="submit">Add relation</button>
+      <button class="button-secondary" type="submit">Add relation</button>
     </form>
   </article>
 </section>
@@ -164,7 +162,7 @@
     <ul class="compact-list">
       {% for item in assumption_details %}
       <li>
-        <strong>{{ item.status }}</strong>
+        <strong class="status-pill">{{ item.status }}</strong>
         <span dir="auto">{{ item.text }}</span>
         <form class="compact-form" method="post" action="/decisions/{{ record.id }}/assumptions/{{ loop.index0 }}">
           <div class="field">
@@ -179,7 +177,7 @@
             <label for="assumption_note_{{ loop.index0 }}">Note</label>
             <input id="assumption_note_{{ loop.index0 }}" name="note" value="{{ item.note }}" dir="auto">
           </div>
-          <button class="button-light" type="submit">Save assumption</button>
+          <button class="button-secondary" type="submit">Save assumption</button>
         </form>
       </li>
       {% else %}
@@ -200,7 +198,7 @@
         {% endfor %}
       </select>
     </div>
-    <button class="button" type="submit">Update status</button>
+    <button class="button-secondary" type="submit">Update status</button>
   </form>
 </section>
 

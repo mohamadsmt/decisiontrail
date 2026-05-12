@@ -6,12 +6,14 @@
     <h1>Audit</h1>
     <p>Local validation and review checks for <code>{{ root }}</code></p>
   </div>
-  <form method="post" action="/export-html">
-    <button class="button" type="submit">Export HTML</button>
-  </form>
+  <div class="page-actions">
+    <form method="post" action="/export-html">
+      <button class="button-secondary" type="submit">Export HTML</button>
+    </form>
+  </div>
 </section>
 
-<section class="stats" aria-label="Audit summary">
+<section class="metric-strip" aria-label="Audit summary">
   <article><span>{{ issues|length }}</span><strong>Structural issues</strong></article>
   <article><span>{{ low_scores|length }}</span><strong>Low scores</strong></article>
   <article><span>{{ due|length }}</span><strong>Due reviews</strong></article>
