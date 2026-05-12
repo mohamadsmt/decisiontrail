@@ -115,6 +115,31 @@ decisiontrail run audit
 decisiontrail run export-html
 ```
 
+## Agent MCP server
+
+DecisionTrail can expose the same local Markdown/YAML decision workflow to
+agentic tools through MCP. The server is local-first and uses the current
+project folder unless `--path` or `DECISIONTRAIL_ROOT` is set.
+
+For Codex-style stdio clients:
+
+```bash
+decisiontrail-mcp --path .
+```
+
+For local Streamable HTTP clients:
+
+```bash
+decisiontrail-mcp --path . --transport streamable-http --host 127.0.0.1 --port 8766 --path-prefix /mcp
+```
+
+The MCP server provides tools for listing, searching, reading, creating,
+updating, relating, reviewing, auditing, parsing meeting notes, exporting HTML,
+and guarded deletion. It also exposes `decisiontrail://schema`,
+`decisiontrail://workflow-guide`, and a `capture_decision_from_rough` prompt so
+agents can turn rough product or business decisions into complete records and
+then audit the result.
+
 ## Local web UI
 
 DecisionTrail includes a localhost-only browser UI for adding and reviewing
