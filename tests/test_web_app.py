@@ -66,6 +66,7 @@ def test_new_decision_form_renders_empty_state(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert "Add decision" in response.text
+    assert 'id="revisit_on" name="revisit_on" type="date" value="" dir="ltr"' in response.text
     assert 'dir="auto"' in response.text
 
 
@@ -139,6 +140,33 @@ def test_ui_review_updates_markdown_record(tmp_path: Path) -> None:
     assert updated.outcome == "Gross margin improved."
     assert updated.metadata["metric_notes"] == [{"reviewed_on": "2026-08-15", "note": "Retention stayed flat."}]
     assert "Reviewed on 2026-08-15: Gross margin improved." in updated.body
+
+    detail_response = client.get(f"/decisions/{record.id}")
+    assert detail_response.status_code == 200
+    assert 'id="reviewed_on" name="reviewed_on" type="date" value="2026-08-15" dir="ltr"' in detail_response.text
+
+
+def test_ui_review_rejects_invalid_review_date_without_updating_record(tmp_path: Path) -> None:
+    config = load_config(tmp_path)
+    record = create_decision(tmp_path, config, "Reject bad review date")
+    client = TestClient(create_web_app(tmp_path))
+
+    response = client.post(
+        f"/decisions/{record.id}/review",
+        data={
+            "outcome": "Should not save.",
+            "reviewed_on": "15-08-2026",
+            "metric_note": "Should not save.",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "Review date must use ISO format: YYYY-MM-DD." in response.text
+    updated = load_decision(tmp_path, load_config(tmp_path), record.id)
+    assert updated.status == "proposed"
+    assert updated.outcome == ""
+    assert updated.metadata["reviewed_on"] == ""
+    assert "Should not save." not in updated.body
 
 
 def test_dashboard_filters_by_status_and_owner(tmp_path: Path) -> None:
@@ -217,9 +245,13 @@ def test_ui_rejects_invalid_related_decision_type(tmp_path: Path) -> None:
 
 def test_ui_edit_updates_record_without_renaming_file(tmp_path: Path) -> None:
     config = load_config(tmp_path)
-    record = create_decision(tmp_path, config, "Original title", owner="CEO")
+    record = create_decision(tmp_path, config, "Original title", owner="CEO", revisit_on="2026-09-01")
     original_path = record.path
     client = TestClient(create_web_app(tmp_path))
+
+    edit_response = client.get(f"/decisions/{record.id}/edit")
+    assert edit_response.status_code == 200
+    assert 'id="revisit_on" name="revisit_on" type="date" value="2026-09-01" dir="ltr"' in edit_response.text
 
     response = client.post(
         f"/decisions/{record.id}/edit",

@@ -211,7 +211,7 @@
     </div>
     <div class="field">
       <label for="reviewed_on">Reviewed on</label>
-      <input id="reviewed_on" name="reviewed_on" value="{{ record.reviewed_on or today }}">
+      <input id="reviewed_on" name="reviewed_on" type="date" value="{{ record.reviewed_on or today }}" dir="ltr">
     </div>
     <div class="field wide">
       <label for="metric_note">Metric note</label>

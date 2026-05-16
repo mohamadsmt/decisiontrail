@@ -373,6 +373,7 @@ def create_web_app(root: Path) -> FastAPI:
 
     @app.post("/decisions/{identifier}/review")
     def review_decision_from_form(
+        request: Request,
         identifier: str,
         outcome: Annotated[str, Form()],
         reviewed_on: Annotated[str, Form()] = "",
@@ -381,6 +382,10 @@ def create_web_app(root: Path) -> FastAPI:
         config = load_config(root)
         record = load_decision(root, config, identifier)
         review_date = reviewed_on.strip() or date.today().isoformat()
+        try:
+            date.fromisoformat(review_date)
+        except ValueError:
+            return render_detail(request, root, identifier, ["Review date must use ISO format: YYYY-MM-DD."], 422)
         record.metadata["outcome"] = outcome.strip()
         record.metadata["reviewed_on"] = review_date
         record.metadata["status"] = "reviewed"
