@@ -14,6 +14,20 @@
   </div>
 </section>
 
+<section class="panel">
+  <div class="panel-heading">
+    <div>
+      <h2>Diff to current</h2>
+      <p class="panel-subtitle">Restore writes this snapshot as a new current version.</p>
+    </div>
+    <form class="inline-form" method="post" action="/decisions/{{ current.id }}/history/{{ snapshot.version }}/restore">
+      <input name="confirm_id" placeholder="Type {{ current.id }}" aria-label="Confirm restore ID" dir="ltr">
+      <button class="button-secondary" type="submit">Restore as new version</button>
+    </form>
+  </div>
+  <pre class="diff-block">{{ diff_to_current or "No differences." }}</pre>
+</section>
+
 <section class="reader-panel">
   <div class="reader-meta" aria-label="Snapshot metadata">
     <span>Status: {{ snapshot.status }}</span>

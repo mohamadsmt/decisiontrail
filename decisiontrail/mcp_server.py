@@ -8,15 +8,19 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from decisiontrail.annotations import append_evidence, append_metric_update, evidence_items, metric_updates, remove_evidence_at
 from decisiontrail.config import load_config
+from decisiontrail.drafts import create_drafts_from_meeting, delete_draft, list_drafts, load_draft, promote_draft
 from decisiontrail.export import export_html as export_html_archive
+from decisiontrail.graph import graph_data, graph_mermaid
 from decisiontrail.models import (
     DecisionRecord,
+    VALID_DECISION_TYPES,
     VALID_DIRECTIONS,
+    VALID_EVIDENCE_TYPES,
     VALID_RELATION_TYPES,
     VALID_STATUSES,
     contains_rtl_text,
-    filter_records_by_tag,
     tag_labels,
 )
 from decisiontrail.parser import parse_meeting_text
@@ -42,12 +46,17 @@ from decisiontrail.storage import (
     copy_decision_record,
     create_decision,
     delete_versioned_decision,
+    diff_decision_records,
     ensure_template,
     load_decision,
     load_decisions,
+    load_history_snapshot,
     read_history_events,
+    restore_history_snapshot,
     write_versioned_decision,
 )
+from decisiontrail.search import search_records
+from decisiontrail.views import delete_user_view, list_views, resolve_view, save_user_view
 from decisiontrail.web.actions import delete_blockers, remove_relation_at, update_assumption_status
 from decisiontrail.web.forms import VALID_ASSUMPTION_STATUSES, parse_assumptions, split_lines
 
@@ -121,6 +130,13 @@ def _validate_direction(direction: str) -> str:
     if direction not in VALID_DIRECTIONS:
         raise ValueError("Direction must be auto, ltr, or rtl.")
     return direction
+
+
+def _validate_decision_type(decision_type: str) -> str:
+    decision_type = decision_type.strip() or "general"
+    if decision_type not in VALID_DECISION_TYPES:
+        raise ValueError(f"Decision type must be one of: {', '.join(sorted(VALID_DECISION_TYPES))}.")
+    return decision_type
 
 
 def _has_rtl_decision_signal(title: str, context: str) -> bool:
@@ -227,6 +243,8 @@ class DecisionTrailMCPService:
             "statuses": sorted(VALID_STATUSES),
             "directions": sorted(VALID_DIRECTIONS),
             "relation_types": sorted(VALID_RELATION_TYPES),
+            "decision_types": sorted(VALID_DECISION_TYPES),
+            "evidence_types": sorted(VALID_EVIDENCE_TYPES),
             "assumption_statuses": sorted(VALID_ASSUMPTION_STATUSES),
             "required_metadata": ["id", "title", "status", "date"],
             "recommended_fields": [
@@ -237,6 +255,8 @@ class DecisionTrailMCPService:
                 "rationale",
                 "assumptions",
                 "success_metrics",
+                "evidence",
+                "metric_updates",
                 "revisit_on",
                 "tags",
             ],
@@ -250,7 +270,8 @@ class DecisionTrailMCPService:
             "First inspect project_status and search/list existing decisions for context. "
             "When capturing a rough decision, infer context, options, rationale, assumptions, "
             "success metrics, revisit date, language, and direction from the user input. "
-            "Write directly with record_decision, then call audit_decisions and return the "
+            "Prefer create_drafts_from_meeting or save_draft-style workflows for rough input, then promote drafts after approval. "
+            "When direct creation is requested, call record_decision, then call audit_decisions and return the "
             "record ID, score, warnings, and follow-up gaps to the user. Preserve existing "
             "record paths on update_decision. Use add_relation for dependencies and review_decision "
             "when measured outcomes are known. Inspect get_history before summarizing prior edits."
@@ -286,7 +307,7 @@ class DecisionTrailMCPService:
             records = [record for record in records if record.status == status]
         if owner:
             records = [record for record in records if record.owner.lower() == owner.lower()]
-        records = filter_records_by_tag(records, tag)
+        records = [hit.record for hit in search_records(records, "", tag=tag)]
         if due_before:
             target = _parse_iso_date(due_before, field_name="due_before")
             records = [record for record in records if record.revisit_on and record.revisit_on <= target]
@@ -305,6 +326,21 @@ class DecisionTrailMCPService:
             "history": read_history_events(self.root, self.config, record.id),
         }
 
+    def diff_decision(self, identifier: str, *, from_version: int, to_version: str = "current") -> dict[str, Any]:
+        record = load_decision(self.root, self.config, identifier)
+        source = load_history_snapshot(self.root, self.config, record.id, from_version)
+        target = record if to_version == "current" else load_history_snapshot(self.root, self.config, record.id, int(to_version))
+        return {"id": record.id, "from": from_version, "to": to_version, "diff": diff_decision_records(source, target)}
+
+    def restore_decision(self, identifier: str, *, version: int, confirm_id: str = "") -> dict[str, Any]:
+        config = self.config
+        record = load_decision(self.root, config, identifier)
+        if confirm_id.strip() != record.id:
+            raise ValueError(f"Type {record.id} to confirm restore.")
+        result = restore_history_snapshot(self.root, config, record, version=version, source="mcp")
+        restored = load_decision(self.root, config, record.id)
+        return {"id": record.id, "restored_from": version, "version": result.version, "record": self._record_detail(restored, load_decisions(self.root, config))}
+
     def search_decisions(
         self,
         query: str,
@@ -312,30 +348,28 @@ class DecisionTrailMCPService:
         status: str | None = None,
         owner: str | None = None,
         tag: str | None = None,
+        view: str | None = None,
         limit: int = 20,
     ) -> dict[str, Any]:
-        query = query.strip().lower()
-        records = self.list_decisions(status=status, owner=owner, tag=tag)["records"]
-        matches = []
-        for summary in records:
-            record = load_decision(self.root, self.config, summary["id"])
-            haystack = " ".join(
-                [
-                    record.id,
-                    record.title,
-                    record.status,
-                    record.owner,
-                    str(record.metadata.get("context", "") or ""),
-                    str(record.metadata.get("decision", "") or ""),
-                    " ".join(str(tag) for tag in record.tags),
-                    record.body,
-                ]
-            ).lower()
-            if not query or query in haystack:
-                matches.append(summary)
-            if len(matches) >= limit:
-                break
-        return {"query": query, "records": matches}
+        view_data = resolve_view(self.root, view or "")
+        effective_query = query.strip()
+        due = False
+        if view_data:
+            effective_query = effective_query or view_data["q"]
+            status = status or view_data["status"] or None
+            owner = owner or view_data["owner"] or None
+            tag = tag or view_data["tag"] or None
+            due = bool(view_data["due"])
+        hits = search_records(
+            load_decisions(self.root, self.config),
+            effective_query,
+            status=status,
+            owner=owner,
+            tag=tag,
+            due=due,
+            limit=limit,
+        )
+        return {"query": effective_query, "records": [self._record_summary(hit.record) | {"match_score": hit.score} for hit in hits]}
 
     def record_decision(
         self,
@@ -349,6 +383,7 @@ class DecisionTrailMCPService:
         rationale: Any = None,
         assumptions: Any = None,
         success_metrics: Any = None,
+        decision_type: str = "general",
         revisit_on: str = "",
         language: str | None = None,
         direction: str | None = None,
@@ -390,6 +425,7 @@ class DecisionTrailMCPService:
             rationale=_normalize_string_list(rationale) or [],
             assumptions=_normalize_assumption_list(assumptions) or [],
             success_metrics=_normalize_string_list(success_metrics) or [],
+            decision_type=_validate_decision_type(decision_type),
             revisit_on=revisit_value,
             language=normalized_language,
             direction=normalized_direction,
@@ -413,6 +449,7 @@ class DecisionTrailMCPService:
         rationale: Any = None,
         assumptions: Any = None,
         success_metrics: Any = None,
+        decision_type: str | None = None,
         revisit_on: str | None = None,
         language: str | None = None,
         direction: str | None = None,
@@ -449,6 +486,8 @@ class DecisionTrailMCPService:
             record.metadata["assumptions"] = _normalize_assumption_list(assumptions) or []
         if success_metrics is not None:
             record.metadata["success_metrics"] = _normalize_string_list(success_metrics) or []
+        if decision_type is not None:
+            record.metadata["decision_type"] = _validate_decision_type(decision_type)
         if revisit_on is not None:
             _parse_iso_date(revisit_on, field_name="revisit_on")
             record.metadata["revisit_on"] = revisit_on.strip()
@@ -578,6 +617,47 @@ class DecisionTrailMCPService:
         write_versioned_decision(self.root, config, previous, record, source="mcp", action="reviewed")
         return self._write_result("reviewed", record)
 
+    def add_evidence(
+        self,
+        identifier: str,
+        *,
+        title: str,
+        evidence_type: str = "url",
+        ref: str = "",
+        note: str = "",
+        added_on: str = "",
+    ) -> dict[str, Any]:
+        config = self.config
+        record = load_decision(self.root, config, identifier)
+        previous = copy_decision_record(record)
+        item = append_evidence(record, title=title, evidence_type=evidence_type, ref=ref, note=note, added_on=added_on)
+        write_versioned_decision(self.root, config, previous, record, source="mcp", action="evidence_added")
+        return {"item": item, **self._write_result("updated", record)}
+
+    def remove_evidence(self, identifier: str, evidence_index: int) -> dict[str, Any]:
+        config = self.config
+        record = load_decision(self.root, config, identifier)
+        previous = copy_decision_record(record)
+        removed = remove_evidence_at(record, evidence_index)
+        write_versioned_decision(self.root, config, previous, record, source="mcp", action="evidence_removed")
+        return {"removed": removed, **self._write_result("updated", record)}
+
+    def add_metric_update(
+        self,
+        identifier: str,
+        *,
+        name: str,
+        value: str = "",
+        measured_on: str = "",
+        note: str = "",
+    ) -> dict[str, Any]:
+        config = self.config
+        record = load_decision(self.root, config, identifier)
+        previous = copy_decision_record(record)
+        item = append_metric_update(record, name=name, value=value, measured_on=measured_on, note=note)
+        write_versioned_decision(self.root, config, previous, record, source="mcp", action="metric_added")
+        return {"item": item, **self._write_result("updated", record)}
+
     def parse_meeting(
         self,
         meeting_text: str,
@@ -591,7 +671,8 @@ class DecisionTrailMCPService:
         drafts = parse_meeting_text(meeting_text, source_name=source_name)
         draft_data = [_jsonable(asdict(draft)) for draft in drafts]
         if not write:
-            return {"drafts": draft_data, "created": []}
+            stored = create_drafts_from_meeting(self.root, meeting_text, source_name=source_name)
+            return {"drafts": draft_data, "stored_drafts": [_jsonable(draft) for draft in stored], "created": []}
 
         config = self.config
         ensure_template(self.root, config)
@@ -619,6 +700,48 @@ class DecisionTrailMCPService:
             created.append(self._record_summary(record))
         return {"drafts": draft_data, "created": created}
 
+    def list_drafts(self) -> dict[str, Any]:
+        return {"drafts": [_jsonable(draft) for draft in list_drafts(self.root)]}
+
+    def get_draft(self, draft_id: str) -> dict[str, Any]:
+        return {"draft": _jsonable(load_draft(self.root, draft_id))}
+
+    def promote_draft(self, draft_id: str, *, owner: str = "", status: str = "proposed") -> dict[str, Any]:
+        record = promote_draft(self.root, self.config, draft_id, owner=owner, status=_validate_status(status))
+        return self._write_result("created", record)
+
+    def delete_draft(self, draft_id: str) -> dict[str, Any]:
+        draft = delete_draft(self.root, draft_id)
+        return {"deleted": True, "draft": _jsonable(draft)}
+
+    def graph(self, *, format: str = "json") -> dict[str, Any]:
+        records = load_decisions(self.root, self.config)
+        if format == "mermaid":
+            return {"format": "mermaid", "graph": graph_mermaid(records)}
+        if format != "json":
+            raise ValueError("Graph format must be json or mermaid.")
+        return {"format": "json", "graph": graph_data(records)}
+
+    def list_views(self) -> dict[str, Any]:
+        return {"views": list_views(self.root)}
+
+    def save_view(
+        self,
+        *,
+        name: str,
+        q: str = "",
+        status: str = "",
+        owner: str = "",
+        tag: str = "",
+        due: bool = False,
+    ) -> dict[str, Any]:
+        if status:
+            _validate_status(status)
+        return {"view": save_user_view(self.root, name=name, q=q, status=status, owner=owner, tag=tag, due=due)}
+
+    def delete_view(self, name: str) -> dict[str, Any]:
+        return {"deleted": delete_user_view(self.root, name), "name": name}
+
     def audit_decisions(
         self,
         *,
@@ -644,8 +767,14 @@ class DecisionTrailMCPService:
     def export_html(self, *, output: str | None = None) -> dict[str, Any]:
         config = self.config
         output_dir = _resolve_output_path(self.root, output, config.export_dir)
-        pages = export_html_archive(load_decisions(self.root, config), output_dir, config)
-        return {"output_dir": str(output_dir), "pages": [str(page) for page in pages], "page_count": len(pages)}
+        records = load_decisions(self.root, config)
+        pages = export_html_archive(records, output_dir, config)
+        return {
+            "output_dir": str(output_dir),
+            "pages": [str(page) for page in pages],
+            "page_count": len(records) + 1,
+            "extra_pages": [str(output_dir / "graph.html")] if (output_dir / "graph.html").exists() else [],
+        }
 
     def delete_decision(self, identifier: str, *, confirm_id: str = "") -> dict[str, Any]:
         config = self.config
@@ -693,6 +822,7 @@ class DecisionTrailMCPService:
             "id": record.id,
             "title": record.title,
             "status": record.status,
+            "decision_type": record.decision_type,
             "owner": record.owner,
             "date": _jsonable(record.decision_date),
             "revisit_on": _jsonable(record.revisit_on),
@@ -700,6 +830,8 @@ class DecisionTrailMCPService:
             "direction": record.direction,
             "parent_id": record.parent_id,
             "tags": tag_labels(record),
+            "evidence_count": len(evidence_items(record)),
+            "metric_update_count": len(metric_updates(record)),
             "path": str(record.path),
             "score": score_decision(record).score,
         }
@@ -760,7 +892,7 @@ def create_mcp_server(
 
     @mcp.prompt()
     def capture_decision_from_rough(rough_decision: str, owner: str = "", status: str = "proposed") -> str:
-        """Guide an agent through direct-write capture of a rough decision."""
+        """Guide an agent through draft-first capture of a rough decision."""
         return (
             "Capture this rough decision in DecisionTrail.\n"
             f"Rough decision:\n{rough_decision}\n\n"
@@ -770,8 +902,8 @@ def create_mcp_server(
             "1. Call project_status and search_decisions/list_decisions for nearby context.\n"
             "2. Infer title, context, options, selected decision, rationale, assumptions, success metrics, "
             "revisit_on, language, direction, tags, parent_id, and related_decisions.\n"
-            "3. Call record_decision directly.\n"
-            "4. Call audit_decisions and get_history, then report the record ID, score, issues, version, and follow-up gaps."
+            "3. Save it as a draft first with parse_meeting/list_drafts style workflows unless the user explicitly asks for direct write.\n"
+            "4. After approval, promote the draft or call record_decision, then audit and report score, issues, version, and follow-up gaps."
         )
 
     @mcp.tool()
@@ -800,15 +932,26 @@ def create_mcp_server(
         return active_service.get_history(identifier)
 
     @mcp.tool()
+    def diff_decision(identifier: str, from_version: int, to_version: str = "current") -> dict[str, Any]:
+        """Read a unified diff between one history version and another version or current."""
+        return active_service.diff_decision(identifier, from_version=from_version, to_version=to_version)
+
+    @mcp.tool()
+    def restore_decision(identifier: str, version: int, confirm_id: str = "") -> dict[str, Any]:
+        """Restore a history snapshot as a new current version after exact ID confirmation."""
+        return active_service.restore_decision(identifier, version=version, confirm_id=confirm_id)
+
+    @mcp.tool()
     def search_decisions(
         query: str,
         status: str | None = None,
         owner: str | None = None,
         tag: str | None = None,
+        view: str | None = None,
         limit: int = 20,
     ) -> dict[str, Any]:
         """Search decision records by text across metadata and body."""
-        return active_service.search_decisions(query, status=status, owner=owner, tag=tag, limit=limit)
+        return active_service.search_decisions(query, status=status, owner=owner, tag=tag, view=view, limit=limit)
 
     @mcp.tool()
     def record_decision(
@@ -821,6 +964,7 @@ def create_mcp_server(
         rationale: list[str] | None = None,
         assumptions: list[Any] | None = None,
         success_metrics: list[str] | None = None,
+        decision_type: str = "general",
         revisit_on: str = "",
         language: str | None = None,
         direction: str | None = None,
@@ -840,6 +984,7 @@ def create_mcp_server(
             rationale=rationale,
             assumptions=assumptions,
             success_metrics=success_metrics,
+            decision_type=decision_type,
             revisit_on=revisit_on,
             language=language,
             direction=direction,
@@ -861,6 +1006,7 @@ def create_mcp_server(
         rationale: list[str] | None = None,
         assumptions: list[Any] | None = None,
         success_metrics: list[str] | None = None,
+        decision_type: str | None = None,
         revisit_on: str | None = None,
         language: str | None = None,
         direction: str | None = None,
@@ -882,6 +1028,7 @@ def create_mcp_server(
             rationale=rationale,
             assumptions=assumptions,
             success_metrics=success_metrics,
+            decision_type=decision_type,
             revisit_on=revisit_on,
             language=language,
             direction=direction,
@@ -924,6 +1071,28 @@ def create_mcp_server(
         return active_service.review_decision(identifier, outcome=outcome, reviewed_on=reviewed_on, metric_note=metric_note)
 
     @mcp.tool()
+    def add_evidence(
+        identifier: str,
+        title: str,
+        evidence_type: str = "url",
+        ref: str = "",
+        note: str = "",
+        added_on: str = "",
+    ) -> dict[str, Any]:
+        """Add an evidence reference to a decision."""
+        return active_service.add_evidence(identifier, title=title, evidence_type=evidence_type, ref=ref, note=note, added_on=added_on)
+
+    @mcp.tool()
+    def remove_evidence(identifier: str, evidence_index: int) -> dict[str, Any]:
+        """Remove one evidence reference by zero-based index."""
+        return active_service.remove_evidence(identifier, evidence_index)
+
+    @mcp.tool()
+    def add_metric_update(identifier: str, name: str, value: str = "", measured_on: str = "", note: str = "") -> dict[str, Any]:
+        """Add a measured metric update to a decision."""
+        return active_service.add_metric_update(identifier, name=name, value=value, measured_on=measured_on, note=note)
+
+    @mcp.tool()
     def parse_meeting(
         meeting_text: str,
         source_name: str = "agent input",
@@ -941,6 +1110,46 @@ def create_mcp_server(
             owner=owner,
             status=status,
         )
+
+    @mcp.tool()
+    def list_drafts() -> dict[str, Any]:
+        """List private local draft decisions."""
+        return active_service.list_drafts()
+
+    @mcp.tool()
+    def get_draft(draft_id: str) -> dict[str, Any]:
+        """Read a private local draft decision."""
+        return active_service.get_draft(draft_id)
+
+    @mcp.tool()
+    def promote_draft(draft_id: str, owner: str = "", status: str = "proposed") -> dict[str, Any]:
+        """Promote a private local draft into a real decision."""
+        return active_service.promote_draft(draft_id, owner=owner, status=status)
+
+    @mcp.tool()
+    def delete_draft(draft_id: str) -> dict[str, Any]:
+        """Delete a private local draft decision."""
+        return active_service.delete_draft(draft_id)
+
+    @mcp.tool()
+    def decision_graph(format: str = "json") -> dict[str, Any]:
+        """Return the decision graph as json data or Mermaid text."""
+        return active_service.graph(format=format)
+
+    @mcp.tool()
+    def list_views() -> dict[str, Any]:
+        """List built-in and private local saved views."""
+        return active_service.list_views()
+
+    @mcp.tool()
+    def save_view(name: str, q: str = "", status: str = "", owner: str = "", tag: str = "", due: bool = False) -> dict[str, Any]:
+        """Save a private local view."""
+        return active_service.save_view(name=name, q=q, status=status, owner=owner, tag=tag, due=due)
+
+    @mcp.tool()
+    def delete_view(name: str) -> dict[str, Any]:
+        """Delete a private local saved view."""
+        return active_service.delete_view(name)
 
     @mcp.tool()
     def audit_decisions(fail_on_overdue: bool = False, fail_under_score: bool = False) -> dict[str, Any]:

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Decision graph{% endblock %}
+{% block content %}
+<section class="page-title">
+  <div>
+    <h1>Decision graph</h1>
+    <p>{{ records|length }} local records shown as hierarchy and typed links.</p>
+  </div>
+  <div class="page-actions">
+    <a class="button-secondary" href="/">Dashboard</a>
+    <a class="button" href="/decisions/new">Add decision</a>
+  </div>
+</section>
+
+<section class="panel">
+  <form class="filters" method="get" action="/graph">
+    <input name="q" value="{{ search_query }}" placeholder="Search graph" aria-label="Search graph">
+    <select name="view" aria-label="Saved view">
+      <option value="">No view</option>
+      {% for view in view_options %}
+      <option value="{{ view.name }}" {% if selected_view|lower == view.name|lower %}selected{% endif %}>{{ view.name }}{% if view.builtin %} · built-in{% endif %}</option>
+      {% endfor %}
+    </select>
+    <select name="tag" aria-label="Tag filter">
+      <option value="">All tags</option>
+      {% for tag in tag_options %}
+      <option value="{{ tag }}" {% if tag_filter|lower == tag|lower %}selected{% endif %}>{{ tag }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Filter</button>
+  </form>
+</section>
+
+<section class="graph-panel">
+  {{ graph_svg|safe }}
+</section>
+{% endblock %}

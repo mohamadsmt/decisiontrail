@@ -57,6 +57,22 @@ DEFAULT_DECISION_BODY_TEMPLATE = """# {{ title }}
 - TODO: Add at least one success metric.
 {% endif %}
 
+{% if decision_type and decision_type != "general" -%}
+## {{ decision_type|replace("_", " ")|title }} Checklist
+
+{% if decision_type == "pricing" -%}
+- TODO: Add customer segment, pricing hypothesis, margin impact, and rollout guardrail.
+{% elif decision_type == "hiring" -%}
+- TODO: Add role scope, hiring bar, alternatives, and team impact.
+{% elif decision_type == "product_bet" -%}
+- TODO: Add target user, product bet, leading signal, and rollback trigger.
+{% elif decision_type == "risk" -%}
+- TODO: Add risk scenario, likelihood, impact, mitigation, and owner.
+{% elif decision_type == "technical_adr" -%}
+- TODO: Add architecture context, constraints, tradeoffs, and migration impact.
+{% endif %}
+
+{% endif -%}
 ## Outcome Review
 
 TODO: Add the measured outcome after the revisit date.
@@ -77,6 +93,7 @@ HTML_INDEX_TEMPLATE = """<!doctype html>
       <p class="eyebrow">DecisionTrail</p>
       <h1>Decision records</h1>
       <p><span data-record-count>{{ records|length }} records shown</span> · {{ records|length }} records exported locally.</p>
+      <p><a href="graph.html">Open decision graph</a></p>
     </header>
     <form class="filter-bar" aria-label="Decision filters">
       <label for="tag-filter">Tag</label>
@@ -86,10 +103,19 @@ HTML_INDEX_TEMPLATE = """<!doctype html>
         <option value="{{ tag.key }}">{{ tag.label }}</option>
         {% endfor %}
       </select>
+      <label for="view-filter">View</label>
+      <select id="view-filter" data-view-filter>
+        <option value="">All views</option>
+        <option value="due">Due</option>
+        <option value="risk">Risk</option>
+        <option value="ai">AI</option>
+        <option value="pricing">Pricing</option>
+        <option value="hiring">Hiring</option>
+      </select>
     </form>
     <section class="record-grid" aria-label="Decision records">
       {% for item in records %}
-      <article class="record-card" dir="auto" data-record-card data-tag-keys='{{ item.tag_keys|tojson }}'>
+      <article class="record-card" dir="auto" data-record-card data-tag-keys='{{ item.tag_keys|tojson }}' data-view-keys='{{ item.view_keys|tojson }}'>
         <div class="meta-row">
           <span>{{ item.record.id }}</span>
           <span>{{ item.record.status }}</span>
@@ -115,21 +141,25 @@ HTML_INDEX_TEMPLATE = """<!doctype html>
   </main>
   <script>
     const tagFilter = document.querySelector("[data-tag-filter]");
+    const viewFilter = document.querySelector("[data-view-filter]");
     const recordCount = document.querySelector("[data-record-count]");
     const cards = Array.from(document.querySelectorAll("[data-record-card]"));
-    function applyTagFilter() {
+    function applyFilters() {
       const selectedTag = tagFilter.value;
+      const selectedView = viewFilter.value;
       let visibleCount = 0;
       for (const card of cards) {
         const tagKeys = JSON.parse(card.dataset.tagKeys || "[]");
-        const isVisible = !selectedTag || tagKeys.includes(selectedTag);
+        const viewKeys = JSON.parse(card.dataset.viewKeys || "[]");
+        const isVisible = (!selectedTag || tagKeys.includes(selectedTag)) && (!selectedView || viewKeys.includes(selectedView));
         card.hidden = !isVisible;
         if (isVisible) visibleCount += 1;
       }
       recordCount.textContent = `${visibleCount} records shown`;
     }
-    tagFilter.addEventListener("change", applyTagFilter);
-    applyTagFilter();
+    tagFilter.addEventListener("change", applyFilters);
+    viewFilter.addEventListener("change", applyFilters);
+    applyFilters();
   </script>
 </body>
 </html>
@@ -240,10 +270,66 @@ HTML_DECISION_TEMPLATE = """<!doctype html>
           </dl>
         </div>
       </section>
+      <section class="relationship-grid" aria-label="Evidence and metrics">
+        <div class="relationship-panel">
+          <h2>Evidence</h2>
+          <ul class="link-list">
+            {% for item in evidence_items %}
+            <li>
+              <strong>{{ item.type }}</strong>
+              <span dir="auto">{{ item.title }}</span>
+              {% if item.ref %}<a href="{{ item.ref }}" dir="auto">{{ item.ref }}</a>{% endif %}
+              {% if item.note %}<small dir="auto">{{ item.note }}</small>{% endif %}
+            </li>
+            {% else %}
+            <li>No evidence recorded.</li>
+            {% endfor %}
+          </ul>
+        </div>
+        <div class="relationship-panel">
+          <h2>Metric updates</h2>
+          <ul class="link-list">
+            {% for item in metric_updates %}
+            <li>
+              <strong dir="auto">{{ item.name }}</strong>
+              <span dir="auto">{{ item.value or "-" }} · {{ item.measured_on or "-" }}</span>
+              {% if item.note %}<small dir="auto">{{ item.note }}</small>{% endif %}
+            </li>
+            {% else %}
+            <li>No metric updates recorded.</li>
+            {% endfor %}
+          </ul>
+        </div>
+      </section>
       <section class="body" dir="auto">
         {{ body_html|safe }}
       </section>
     </article>
+  </main>
+</body>
+</html>
+"""
+
+
+HTML_GRAPH_TEMPLATE = """<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DecisionTrail graph</title>
+  <style>{{ css }}</style>
+</head>
+<body>
+  <main class="shell">
+    <nav class="top-nav"><a href="index.html">Decision records</a></nav>
+    <header class="page-header">
+      <p class="eyebrow">DecisionTrail</p>
+      <h1>Decision graph</h1>
+      <p>{{ records|length }} records exported locally.</p>
+    </header>
+    <section class="relationship-panel">
+      {{ graph_svg|safe }}
+    </section>
   </main>
 </body>
 </html>
@@ -436,6 +522,35 @@ dd { margin: 0; }
 
 .link-list small {
   color: var(--muted);
+}
+
+.decision-graph {
+  display: block;
+  min-width: 760px;
+  width: 100%;
+}
+
+.graph-node rect {
+  fill: #ffffff;
+  stroke: var(--line);
+}
+
+.graph-node-id {
+  fill: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.graph-node-title {
+  fill: var(--text);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.graph-edge-label {
+  fill: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
 }
 """
 

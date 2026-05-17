@@ -1,5 +1,7 @@
 .DS_Store
 .codex/
+.decisiontrail/drafts/
+.decisiontrail/views.json
 script/
 .venv/
 .pytest_cache/

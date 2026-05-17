@@ -10,6 +10,8 @@
     <form method="post" action="/export-html">
       <button class="button-secondary" type="submit">Export HTML</button>
     </form>
+    <a class="button-secondary" href="/graph">Graph</a>
+    <a class="button-secondary" href="/review">Review inbox</a>
     <a class="button" href="/decisions/new">Add decision</a>
   </div>
 </section>
@@ -31,6 +33,13 @@
       </p>
     </div>
     <form class="filters" method="get" action="/">
+      <input name="q" value="{{ search_query }}" placeholder="Search" aria-label="Search decisions">
+      <select name="view" aria-label="Saved view">
+        <option value="">No view</option>
+        {% for view in view_options %}
+        <option value="{{ view.name }}" {% if selected_view|lower == view.name|lower %}selected{% endif %}>{{ view.name }}{% if view.builtin %} · built-in{% endif %}</option>
+        {% endfor %}
+      </select>
       <select name="status" aria-label="Status filter">
         <option value="">All statuses</option>
         {% for status in valid_statuses %}
@@ -52,6 +61,14 @@
       <button type="submit">Filter</button>
     </form>
   </div>
+  <form class="saved-view-form" method="post" action="/views">
+    <input name="name" placeholder="Save current filters as..." aria-label="Saved view name" required>
+    <input type="hidden" name="q" value="{{ search_query }}">
+    <input type="hidden" name="status" value="{{ status_filter }}">
+    <input type="hidden" name="owner" value="{{ owner_filter }}">
+    <input type="hidden" name="tag" value="{{ tag_filter }}">
+    <button class="button-secondary button-small" type="submit">Save view</button>
+  </form>
   <div class="table-wrap">
     <table class="decision-table">
       <thead>

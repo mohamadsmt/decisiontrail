@@ -5,7 +5,8 @@ Git-native decision log for founders, product teams, and operators.
 DecisionTrail is a local-first CLI for recording important product, business,
 strategy, hiring, pricing, risk, and technical decisions as Markdown files with
 YAML frontmatter. It gives decisions a durable shape: context, options,
-rationale, assumptions, success metrics, revisit dates, and outcome reviews.
+rationale, assumptions, success metrics, evidence, metric updates, revisit dates,
+and outcome reviews.
 Every decision update creates a versioned sidecar snapshot so edits remain
 traceable without making the current Markdown record hard to read.
 
@@ -42,8 +43,13 @@ decisiontrail new "Launch tiered pricing" --owner "Product"
 decisiontrail list --status accepted --tag pricing
 decisiontrail due
 decisiontrail assumptions
+decisiontrail search pricing
 decisiontrail score
 decisiontrail history DEC-2026-001
+decisiontrail evidence add DEC-2026-001 "Margin sheet" --type url --ref https://example.com
+decisiontrail metric add DEC-2026-001 gross_margin --value "42%" --measured-on 2026-08-01
+decisiontrail drafts list
+decisiontrail graph --format mermaid
 decisiontrail run weekly-review
 decisiontrail export --format html
 decisiontrail ui
@@ -56,6 +62,7 @@ Each decision is a Markdown file with English frontmatter keys:
 ```yaml
 id: DEC-2026-001
 title: Launch tiered pricing for high-volume merchants
+decision_type: pricing
 status: accepted
 date: 2026-05-11
 owner: Product
@@ -74,6 +81,17 @@ assumptions:
 success_metrics:
   - gross_margin
   - merchant_retention
+evidence:
+  - title: Margin model
+    type: file
+    ref: ./analysis/margin-model.xlsx
+    note: Local evidence reference only; files are not copied.
+    added_on: 2026-05-20
+metric_updates:
+  - name: gross_margin
+    value: 42%
+    measured_on: 2026-06-01
+    note: First cohort result.
 revisit_on: 2026-07-15
 tags:
   - pricing
@@ -116,6 +134,17 @@ decisiontrail new "Launch partner pilot" --parent DEC-2026-001 --related depends
 decisiontrail relate DEC-2026-003 DEC-2026-001 --type informs --note "Pricing context"
 decisiontrail links DEC-2026-001
 decisiontrail tree
+decisiontrail search "pricing margin" --view Pricing
+decisiontrail graph --format json
+decisiontrail diff DEC-2026-001 --from 1 --to current
+decisiontrail restore DEC-2026-001 --version 1 --confirm-id DEC-2026-001
+decisiontrail evidence add DEC-2026-001 "Experiment note" --type note --note "Cohort stayed healthy."
+decisiontrail evidence list DEC-2026-001
+decisiontrail metric add DEC-2026-001 gross_margin --value "42%" --measured-on 2026-08-01
+decisiontrail metric list DEC-2026-001
+decisiontrail views save "Pricing review" --q pricing
+decisiontrail drafts list
+decisiontrail drafts promote DRAFT-2026-001 --owner Product
 decisiontrail review DEC-2026-001 --outcome "Gross margin improved without retention loss."
 decisiontrail parse-meeting notes/weekly.md
 decisiontrail export --format html
@@ -165,6 +194,10 @@ Markdown/YAML files as the CLI. It includes:
 
 - dashboard summaries for due reviews, missing metrics, low scores, and
   unvalidated assumptions
+- a review inbox for due reviews, missing metrics, low scores, and open
+  assumptions
+- full-text search, built-in views, and private local saved views
+- a local decision graph for parent/child hierarchy and typed links
 - decision list filters by status, owner, and tag
 - a form for creating new decision records with optional parent and typed links
 - edit forms for updating frontmatter and Markdown body without changing the ID
@@ -173,10 +206,12 @@ Markdown/YAML files as the CLI. It includes:
   scorecards, audit warnings, relationship controls, reviews, and delete actions
 - collapsed scorecard, parent/child links, outgoing links, computed backlinks,
   assumption controls, version history, and audit panels on the detail page
+- evidence references and metric updates on each decision detail page
+- history diffs and guarded restore-as-new-version from snapshots
 - quick status changes and outcome review
 - assumption verification with `unvalidated`, `pending`, `validated`, and
   `invalidated` statuses
-- local audit, HTML export, and meeting-note parsing from the browser
+- local audit, HTML export, draft inbox, and meeting-note parsing from the browser
 - guarded delete for unreferenced decisions
 
 Tags are stored in the existing `tags` frontmatter list and are matched as
@@ -210,9 +245,23 @@ changed fields, and snapshot path for each change. New records start at
 change captures a v1 baseline snapshot and writes the updated record as v2.
 
 Versioned writes are shared by the web UI, CLI, and MCP server for edits, status
-changes, assumption verification, relation changes, outcome reviews, and guarded
-deletes. The feature is read-only: DecisionTrail shows history and snapshots, but
-does not restore old versions automatically.
+changes, assumption verification, relation changes, evidence and metric updates,
+outcome reviews, restores, and guarded deletes. Restores are history-preserving:
+an old snapshot is written back as a new current version instead of rewriting
+past history.
+
+## Evidence, metrics, drafts, and views
+
+Evidence stores references only. DecisionTrail records URLs, local paths, notes,
+or experiment references in YAML but does not copy files into the project.
+Metric updates are measured observations attached to a decision; they complement
+the target `success_metrics` list without replacing it.
+
+Meeting notes and agent workflows can save private local drafts under
+`.decisiontrail/drafts/`. Drafts can be promoted into real Markdown decisions or
+deleted from the inbox. User-created saved views are private local data in
+`.decisiontrail/views.json`; built-in views such as Due, Risk, AI, Pricing, and
+Hiring are available without config.
 
 ## Relationships
 

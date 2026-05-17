@@ -11,15 +11,19 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markdown import markdown
 
+from decisiontrail.annotations import append_evidence, append_metric_update, evidence_items, metric_updates, remove_evidence_at
 from decisiontrail.config import load_config
+from decisiontrail.drafts import create_drafts_from_meeting, delete_draft, list_drafts, promote_draft
 from decisiontrail.export import export_html
+from decisiontrail.graph import graph_svg
 from decisiontrail.models import (
     DecisionRecord,
+    VALID_DECISION_TYPES,
     VALID_DIRECTIONS,
+    VALID_EVIDENCE_TYPES,
     VALID_RELATION_TYPES,
     VALID_STATUSES,
     collect_tags,
-    filter_records_by_tag,
     tag_labels,
 )
 from decisiontrail.parser import parse_meeting_text
@@ -43,13 +47,17 @@ from decisiontrail.storage import (
     copy_decision_record,
     create_decision,
     delete_versioned_decision,
+    diff_decision_records,
     ensure_template,
     load_decision,
     load_decisions,
     load_history_snapshot,
     read_history_events,
+    restore_history_snapshot,
     write_versioned_decision,
 )
+from decisiontrail.search import search_records
+from decisiontrail.views import list_views, resolve_view, save_user_view
 from decisiontrail.web.actions import delete_blockers, normalize_assumption, remove_relation_at, update_assumption_status
 from decisiontrail.web.forms import (
     VALID_ASSUMPTION_STATUSES,
@@ -77,12 +85,34 @@ def create_web_app(root: Path) -> FastAPI:
         status: Annotated[str | None, Query()] = None,
         owner: Annotated[str | None, Query()] = None,
         tag: Annotated[str | None, Query()] = None,
+        q: Annotated[str | None, Query()] = None,
+        view: Annotated[str | None, Query()] = None,
         page: Annotated[int, Query(ge=1)] = 1,
         per_page: Annotated[int, Query(ge=1, le=100)] = 10,
     ) -> HTMLResponse:
         config = load_config(root)
         records = load_decisions(root, config)
-        filtered = filter_records(records, status=status, owner=owner, tag=tag)
+        view_data = resolve_view(root, view or "")
+        effective_q = q or ""
+        effective_status = status or ""
+        effective_owner = owner or ""
+        effective_tag = tag or ""
+        due = False
+        if view_data:
+            effective_q = effective_q or view_data["q"]
+            effective_status = effective_status or view_data["status"]
+            effective_owner = effective_owner or view_data["owner"]
+            effective_tag = effective_tag or view_data["tag"]
+            due = bool(view_data["due"])
+        hits = search_records(
+            records,
+            effective_q,
+            status=effective_status or None,
+            owner=effective_owner or None,
+            tag=effective_tag or None,
+            due=due,
+        )
+        filtered = [hit.record for hit in hits]
         page_records, pagination = paginate_records(
             filtered,
             page=page,
@@ -90,6 +120,8 @@ def create_web_app(root: Path) -> FastAPI:
             status=status or "",
             owner=owner or "",
             tag=tag or "",
+            q=q or "",
+            view=view or "",
         )
         report = weekly_review(records)
         scores = [score_decision(record) for record in records]
@@ -110,12 +142,27 @@ def create_web_app(root: Path) -> FastAPI:
                 "status_filter": status or "",
                 "owner_filter": owner or "",
                 "tag_filter": tag or "",
+                "search_query": q or "",
+                "selected_view": view or "",
+                "view_options": list_views(root),
                 "tag_options": collect_tags(records),
                 "tag_labels": tag_labels,
                 "per_page_options": [10, 25, 50],
                 "valid_statuses": sorted(VALID_STATUSES),
             },
         )
+
+    @app.post("/views", response_class=HTMLResponse)
+    def save_view_from_ui(
+        name: Annotated[str, Form()],
+        q: Annotated[str, Form()] = "",
+        status: Annotated[str, Form()] = "",
+        owner: Annotated[str, Form()] = "",
+        tag: Annotated[str, Form()] = "",
+    ) -> Response:
+        save_user_view(root, name=name, q=q, status=status, owner=owner, tag=tag)
+        params = {"view": name}
+        return RedirectResponse(url=f"/?{urlencode(params)}", status_code=303)
 
     @app.get("/audit", response_class=HTMLResponse)
     def audit(request: Request) -> HTMLResponse:
@@ -136,6 +183,59 @@ def create_web_app(root: Path) -> FastAPI:
                 "missing_metrics": missing_metrics(records),
                 "unvalidated_assumptions": unvalidated_assumptions(records),
                 "review_candidates": report["review_candidates"],
+            },
+        )
+
+    @app.get("/review", response_class=HTMLResponse)
+    def review_inbox(request: Request) -> HTMLResponse:
+        config = load_config(root)
+        records = load_decisions(root, config)
+        scores = [score_decision(record) for record in records]
+        report = weekly_review(records)
+        return templates.TemplateResponse(
+            request,
+            "review.html",
+            {
+                "root": root,
+                "config": config,
+                "due": report["due"],
+                "missing_metrics": report["missing_metrics"],
+                "unvalidated_assumptions": report["unvalidated_assumptions"],
+                "review_candidates": report["review_candidates"],
+                "low_scores": [score for score in scores if score.score < config.score_threshold],
+            },
+        )
+
+    @app.get("/graph", response_class=HTMLResponse)
+    def graph_view(
+        request: Request,
+        q: Annotated[str | None, Query()] = None,
+        tag: Annotated[str | None, Query()] = None,
+        view: Annotated[str | None, Query()] = None,
+    ) -> HTMLResponse:
+        config = load_config(root)
+        records = load_decisions(root, config)
+        view_data = resolve_view(root, view or "")
+        query = q or ""
+        tag_filter = tag or ""
+        due = False
+        if view_data:
+            query = query or view_data["q"]
+            tag_filter = tag_filter or view_data["tag"]
+            due = bool(view_data["due"])
+        filtered = [hit.record for hit in search_records(records, query, tag=tag_filter or None, due=due)]
+        return templates.TemplateResponse(
+            request,
+            "graph.html",
+            {
+                "root": root,
+                "records": filtered,
+                "graph_svg": graph_svg(filtered),
+                "search_query": q or "",
+                "tag_filter": tag or "",
+                "selected_view": view or "",
+                "tag_options": collect_tags(records),
+                "view_options": list_views(root),
             },
         )
 
@@ -214,6 +314,54 @@ def create_web_app(root: Path) -> FastAPI:
                     )
         return render_meeting_parser(request, root, meeting_text, drafts, errors, created)
 
+    @app.get("/drafts", response_class=HTMLResponse)
+    def drafts_page(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(
+            request,
+            "drafts.html",
+            {
+                "root": root,
+                "drafts": list_drafts(root),
+                "errors": [],
+                "created": [],
+            },
+        )
+
+    @app.post("/drafts/from-meeting", response_class=HTMLResponse)
+    def save_drafts_from_meeting(
+        request: Request,
+        meeting_text: Annotated[str, Form()] = "",
+    ) -> HTMLResponse:
+        errors = []
+        created = []
+        if not meeting_text.strip():
+            errors.append("Meeting notes are required.")
+        else:
+            created = create_drafts_from_meeting(root, meeting_text, source_name="draft inbox")
+            if not created:
+                errors.append("No decision candidates found.")
+        return templates.TemplateResponse(
+            request,
+            "drafts.html",
+            {"root": root, "drafts": list_drafts(root), "errors": errors, "created": created},
+            status_code=422 if errors else 200,
+        )
+
+    @app.post("/drafts/{draft_id}/promote")
+    def promote_draft_from_form(
+        draft_id: str,
+        owner: Annotated[str, Form()] = "",
+        status: Annotated[str, Form()] = "proposed",
+    ) -> Response:
+        config = load_config(root)
+        record = promote_draft(root, config, draft_id, owner=owner, status=status)
+        return RedirectResponse(url=f"/decisions/{record.id}", status_code=303)
+
+    @app.post("/drafts/{draft_id}/delete")
+    def delete_draft_from_form(draft_id: str) -> Response:
+        delete_draft(root, draft_id)
+        return RedirectResponse(url="/drafts", status_code=303)
+
     @app.get("/decisions/new", response_class=HTMLResponse)
     def new_decision(request: Request) -> HTMLResponse:
         parent_id = request.query_params.get("parent", "")
@@ -223,6 +371,7 @@ def create_web_app(root: Path) -> FastAPI:
     def create_decision_from_form(
         request: Request,
         title: Annotated[str, Form()],
+        decision_type: Annotated[str, Form()] = "general",
         owner: Annotated[str, Form()] = "",
         status: Annotated[str, Form()] = "proposed",
         context: Annotated[str, Form()] = "",
@@ -240,6 +389,7 @@ def create_web_app(root: Path) -> FastAPI:
     ) -> Response:
         data = DecisionFormData(
             title=title,
+            decision_type=decision_type,
             owner=owner,
             status=status,
             context=context,
@@ -276,6 +426,7 @@ def create_web_app(root: Path) -> FastAPI:
         request: Request,
         identifier: str,
         title: Annotated[str, Form()],
+        decision_type: Annotated[str, Form()] = "general",
         owner: Annotated[str, Form()] = "",
         status: Annotated[str, Form()] = "proposed",
         context: Annotated[str, Form()] = "",
@@ -297,6 +448,7 @@ def create_web_app(root: Path) -> FastAPI:
         records = load_decisions(root, config)
         data = DecisionFormData(
             title=title,
+            decision_type=decision_type,
             owner=owner,
             status=status,
             context=context,
@@ -351,8 +503,22 @@ def create_web_app(root: Path) -> FastAPI:
                 "snapshot": snapshot,
                 "event": event,
                 "body_html": markdown(snapshot.body, extensions=["fenced_code", "tables"]),
+                "diff_to_current": diff_decision_records(snapshot, current),
             },
         )
+
+    @app.post("/decisions/{identifier}/history/{version}/restore")
+    def restore_history_from_form(
+        identifier: str,
+        version: int,
+        confirm_id: Annotated[str, Form()] = "",
+    ) -> Response:
+        config = load_config(root)
+        record = load_decision(root, config, identifier)
+        if confirm_id.strip() != record.id:
+            raise HTTPException(status_code=422, detail=f"Type {record.id} to restore this snapshot.")
+        restore_history_snapshot(root, config, record, version=version, source="web")
+        return RedirectResponse(url=f"/decisions/{record.id}", status_code=303)
 
     @app.post("/decisions/{identifier}/status")
     def update_status_from_form(
@@ -466,6 +632,61 @@ def create_web_app(root: Path) -> FastAPI:
         write_versioned_decision(root, config, previous, record, source="web", action="reviewed")
         return RedirectResponse(url=f"/decisions/{record.id}", status_code=303)
 
+    @app.post("/decisions/{identifier}/evidence")
+    def add_evidence_from_form(
+        request: Request,
+        identifier: str,
+        title: Annotated[str, Form()],
+        evidence_type: Annotated[str, Form()] = "url",
+        ref: Annotated[str, Form()] = "",
+        note: Annotated[str, Form()] = "",
+        added_on: Annotated[str, Form()] = "",
+    ) -> Response:
+        config = load_config(root)
+        record = load_decision(root, config, identifier)
+        previous = copy_decision_record(record)
+        try:
+            append_evidence(record, title=title, evidence_type=evidence_type, ref=ref, note=note, added_on=added_on)
+        except ValueError as error:
+            return render_detail(request, root, identifier, [str(error)], 422)
+        write_versioned_decision(root, config, previous, record, source="web", action="evidence_added")
+        return RedirectResponse(url=f"/decisions/{record.id}#evidence", status_code=303)
+
+    @app.post("/decisions/{identifier}/evidence/remove")
+    def remove_evidence_from_form(
+        request: Request,
+        identifier: str,
+        evidence_index: Annotated[int, Form()],
+    ) -> Response:
+        config = load_config(root)
+        record = load_decision(root, config, identifier)
+        previous = copy_decision_record(record)
+        try:
+            remove_evidence_at(record, evidence_index)
+        except IndexError as error:
+            return render_detail(request, root, identifier, [str(error)], 422)
+        write_versioned_decision(root, config, previous, record, source="web", action="evidence_removed")
+        return RedirectResponse(url=f"/decisions/{record.id}#evidence", status_code=303)
+
+    @app.post("/decisions/{identifier}/metrics")
+    def add_metric_from_form(
+        request: Request,
+        identifier: str,
+        name: Annotated[str, Form()],
+        value: Annotated[str, Form()] = "",
+        measured_on: Annotated[str, Form()] = "",
+        note: Annotated[str, Form()] = "",
+    ) -> Response:
+        config = load_config(root)
+        record = load_decision(root, config, identifier)
+        previous = copy_decision_record(record)
+        try:
+            append_metric_update(record, name=name, value=value, measured_on=measured_on, note=note)
+        except ValueError as error:
+            return render_detail(request, root, identifier, [str(error)], 422)
+        write_versioned_decision(root, config, previous, record, source="web", action="metric_added")
+        return RedirectResponse(url=f"/decisions/{record.id}#metrics", status_code=303)
+
     @app.post("/decisions/{identifier}/delete")
     def delete_decision_from_form(
         request: Request,
@@ -492,13 +713,7 @@ def create_web_app(root: Path) -> FastAPI:
 
 
 def filter_records(records, *, status: str | None, owner: str | None, tag: str | None):
-    filtered = records
-    if status:
-        filtered = [record for record in filtered if record.status == status]
-    if owner:
-        filtered = [record for record in filtered if record.owner.lower() == owner.lower()]
-    filtered = filter_records_by_tag(filtered, tag)
-    return filtered
+    return [hit.record for hit in search_records(records, "", status=status, owner=owner, tag=tag)]
 
 
 def paginate_records(
@@ -509,6 +724,8 @@ def paginate_records(
     status: str,
     owner: str,
     tag: str,
+    q: str = "",
+    view: str = "",
 ) -> tuple[list[DecisionRecord], dict[str, int | str | bool | None]]:
     total = len(records)
     safe_per_page = max(1, min(per_page, 100))
@@ -532,6 +749,8 @@ def paginate_records(
             status=status,
             owner=owner,
             tag=tag,
+            q=q,
+            view=view,
         )
         if current_page > 1
         else None,
@@ -541,14 +760,20 @@ def paginate_records(
             status=status,
             owner=owner,
             tag=tag,
+            q=q,
+            view=view,
         )
         if current_page < total_pages
         else None,
     }
 
 
-def dashboard_page_url(*, page: int, per_page: int, status: str, owner: str, tag: str) -> str:
+def dashboard_page_url(*, page: int, per_page: int, status: str, owner: str, tag: str, q: str = "", view: str = "") -> str:
     params: dict[str, str | int] = {"page": page, "per_page": per_page}
+    if q:
+        params["q"] = q
+    if view:
+        params["view"] = view
     if status:
         params["status"] = status
     if owner:
@@ -574,6 +799,7 @@ def render_form(
             "errors": errors or [],
             "records": load_decisions(root, load_config(root)),
             "valid_statuses": sorted(VALID_STATUSES),
+            "valid_decision_types": sorted(VALID_DECISION_TYPES),
             "valid_directions": ["auto", "ltr", "rtl"],
             "valid_relation_types": ["related_to", "depends_on", "blocks", "supersedes", "informs"],
         },
@@ -600,6 +826,7 @@ def render_edit_form(
             "errors": errors or [],
             "records": records,
             "valid_statuses": sorted(VALID_STATUSES),
+            "valid_decision_types": sorted(VALID_DECISION_TYPES),
             "valid_directions": ["auto", "ltr", "rtl"],
             "valid_relation_types": sorted(VALID_RELATION_TYPES),
         },
@@ -639,6 +866,8 @@ def render_detail(
             "assumptions": assumptions,
             "assumption_details": [normalize_assumption(item) for item in record.assumptions],
             "record_tags": tag_labels(record),
+            "evidence_items": evidence_items(record),
+            "metric_updates": metric_updates(record),
             "body_html": body_html,
             "history_events": list(reversed(history_events)),
             "issues": validate_record(record, records=records),
@@ -646,6 +875,7 @@ def render_detail(
             "today": date.today().isoformat(),
             "valid_statuses": sorted(VALID_STATUSES),
             "valid_relation_types": sorted(VALID_RELATION_TYPES),
+            "valid_evidence_types": sorted(VALID_EVIDENCE_TYPES),
             "assumption_statuses": sorted(VALID_ASSUMPTION_STATUSES),
         },
         status_code=status_code,

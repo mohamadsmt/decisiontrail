@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import difflib
 import json
 import re
 import unicodedata
@@ -12,7 +13,7 @@ from typing import Any
 import yaml
 
 from decisiontrail.config import DecisionTrailConfig
-from decisiontrail.models import DecisionRecord, VALID_DIRECTIONS, VALID_STATUSES
+from decisiontrail.models import DecisionRecord, VALID_DECISION_TYPES, VALID_DIRECTIONS, VALID_STATUSES
 from decisiontrail.templates import DEFAULT_DECISION_BODY_TEMPLATE, render_decision_body
 
 
@@ -109,6 +110,38 @@ def load_history_snapshot(root: Path, config: DecisionTrailConfig, decision_id: 
     if not path.exists():
         raise FileNotFoundError(f"No history snapshot found for {decision_id} v{version}.")
     return read_decision(path)
+
+
+def record_text_for_diff(record: DecisionRecord) -> str:
+    return render_frontmatter(record.metadata, record.body)
+
+
+def diff_decision_records(from_record: DecisionRecord, to_record: DecisionRecord) -> str:
+    from_name = f"{from_record.id or from_record.path.stem}@v{metadata_version(from_record.metadata)}"
+    to_name = f"{to_record.id or to_record.path.stem}@v{metadata_version(to_record.metadata)}"
+    return "".join(
+        difflib.unified_diff(
+            record_text_for_diff(from_record).splitlines(keepends=True),
+            record_text_for_diff(to_record).splitlines(keepends=True),
+            fromfile=from_name,
+            tofile=to_name,
+        )
+    )
+
+
+def restore_history_snapshot(
+    root: Path,
+    config: DecisionTrailConfig,
+    record: DecisionRecord,
+    *,
+    version: int,
+    source: str,
+) -> VersionWriteResult:
+    snapshot = load_history_snapshot(root, config, record.id, version)
+    restored = copy_decision_record(snapshot)
+    restored.path = record.path
+    restored.metadata["id"] = record.id
+    return write_versioned_decision(root, config, copy_decision_record(record), restored, source=source, action="restored")
 
 
 def write_versioned_decision(
@@ -397,6 +430,9 @@ def build_metadata(
     language: str = "en",
     direction: str = "auto",
     tags: list[str] | None = None,
+    decision_type: str = "general",
+    evidence: list[Any] | None = None,
+    metric_updates: list[Any] | None = None,
     parent_id: str = "",
     related_decisions: list[Any] | None = None,
 ) -> dict[str, Any]:
@@ -404,10 +440,13 @@ def build_metadata(
         raise ValueError(f"Unsupported status: {status}")
     if direction not in VALID_DIRECTIONS:
         raise ValueError(f"Unsupported direction: {direction}")
+    if decision_type not in VALID_DECISION_TYPES:
+        raise ValueError(f"Unsupported decision_type: {decision_type}")
 
     return {
         "id": decision_id,
         "title": title,
+        "decision_type": decision_type,
         "status": status,
         "date": created_on or date.today(),
         "owner": owner,
@@ -421,6 +460,8 @@ def build_metadata(
         "outcome": "",
         "reviewed_on": "",
         "experiment_links": [],
+        "evidence": evidence or [],
+        "metric_updates": metric_updates or [],
         "tags": tags or [],
         "parent_id": parent_id,
         "related_decisions": related_decisions or [],
@@ -447,6 +488,9 @@ def create_decision(
     language: str = "en",
     direction: str = "auto",
     tags: list[str] | None = None,
+    decision_type: str = "general",
+    evidence: list[Any] | None = None,
+    metric_updates: list[Any] | None = None,
     parent_id: str = "",
     related_decisions: list[Any] | None = None,
     source: str = "storage",
@@ -471,6 +515,9 @@ def create_decision(
         language=language,
         direction=direction,
         tags=tags,
+        decision_type=decision_type,
+        evidence=evidence,
+        metric_updates=metric_updates,
         parent_id=parent_id,
         related_decisions=related_decisions,
     )

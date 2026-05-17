@@ -49,6 +49,22 @@
 - TODO: Add at least one success metric.
 {% endif %}
 
+{% if decision_type and decision_type != "general" -%}
+## {{ decision_type|replace("_", " ")|title }} Checklist
+
+{% if decision_type == "pricing" -%}
+- TODO: Add customer segment, pricing hypothesis, margin impact, and rollout guardrail.
+{% elif decision_type == "hiring" -%}
+- TODO: Add role scope, hiring bar, alternatives, and team impact.
+{% elif decision_type == "product_bet" -%}
+- TODO: Add target user, product bet, leading signal, and rollback trigger.
+{% elif decision_type == "risk" -%}
+- TODO: Add risk scenario, likelihood, impact, mitigation, and owner.
+{% elif decision_type == "technical_adr" -%}
+- TODO: Add architecture context, constraints, tradeoffs, and migration impact.
+{% endif %}
+
+{% endif -%}
 ## Outcome Review
 
 TODO: Add the measured outcome after the revisit date.

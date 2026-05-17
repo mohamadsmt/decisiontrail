@@ -39,6 +39,7 @@
 <section class="reader-panel">
   <div class="reader-meta" aria-label="Decision metadata">
     <span>Owner: {{ record.owner or "-" }}</span>
+    <span>Type: {{ record.decision_type }}</span>
     <span>Date: {{ record.decision_date or "-" }}</span>
     <span>Revisit: {{ record.revisit_on or "-" }}</span>
     <span>{{ record.language }} / {{ record.direction }}</span>
@@ -242,6 +243,89 @@
         <textarea id="metric_note" name="metric_note" rows="3" dir="auto"></textarea>
       </div>
       <button class="button" type="submit">Save review</button>
+    </form>
+  </details>
+
+  <details class="panel" id="evidence" open>
+    <summary>Evidence</summary>
+    <ul class="compact-list">
+      {% for item in evidence_items %}
+      <li>
+        <strong>{{ item.title }}</strong>
+        <span>{{ item.type }} · {{ item.added_on or "-" }}</span>
+        {% if item.ref %}
+        <a href="{{ item.ref }}" dir="auto">{{ item.ref }}</a>
+        {% endif %}
+        {% if item.note %}<small dir="auto">{{ item.note }}</small>{% endif %}
+        <form class="inline-form" method="post" action="/decisions/{{ record.id }}/evidence/remove">
+          <input type="hidden" name="evidence_index" value="{{ loop.index0 }}">
+          <button class="button-secondary" type="submit">Remove</button>
+        </form>
+      </li>
+      {% else %}
+      <li>No evidence recorded.</li>
+      {% endfor %}
+    </ul>
+    <form class="review-form" method="post" action="/decisions/{{ record.id }}/evidence">
+      <div class="field">
+        <label for="evidence_title">Title</label>
+        <input id="evidence_title" name="title" dir="auto" required>
+      </div>
+      <div class="field">
+        <label for="evidence_type">Type</label>
+        <select id="evidence_type" name="evidence_type">
+          {% for evidence_type in valid_evidence_types %}
+          <option value="{{ evidence_type }}">{{ evidence_type }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field wide">
+        <label for="evidence_ref">Reference</label>
+        <input id="evidence_ref" name="ref" dir="auto">
+      </div>
+      <div class="field">
+        <label for="evidence_added_on">Added on</label>
+        <input id="evidence_added_on" name="added_on" type="date" value="{{ today }}" dir="ltr">
+      </div>
+      <div class="field wide">
+        <label for="evidence_note">Note</label>
+        <textarea id="evidence_note" name="note" rows="3" dir="auto"></textarea>
+      </div>
+      <button class="button-secondary" type="submit">Add evidence</button>
+    </form>
+  </details>
+
+  <details class="panel" id="metrics" open>
+    <summary>Metric updates</summary>
+    <ul class="compact-list">
+      {% for item in metric_updates %}
+      <li>
+        <strong dir="auto">{{ item.name }}</strong>
+        <span dir="auto">{{ item.value or "-" }} · {{ item.measured_on or "-" }}</span>
+        {% if item.note %}<small dir="auto">{{ item.note }}</small>{% endif %}
+      </li>
+      {% else %}
+      <li>No metric updates recorded.</li>
+      {% endfor %}
+    </ul>
+    <form class="review-form" method="post" action="/decisions/{{ record.id }}/metrics">
+      <div class="field">
+        <label for="metric_name">Metric</label>
+        <input id="metric_name" name="name" dir="auto" required>
+      </div>
+      <div class="field">
+        <label for="metric_value">Value</label>
+        <input id="metric_value" name="value" dir="auto">
+      </div>
+      <div class="field">
+        <label for="measured_on">Measured on</label>
+        <input id="measured_on" name="measured_on" type="date" value="{{ today }}" dir="ltr">
+      </div>
+      <div class="field wide">
+        <label for="metric_update_note">Note</label>
+        <textarea id="metric_update_note" name="note" rows="3" dir="auto"></textarea>
+      </div>
+      <button class="button-secondary" type="submit">Add metric</button>
     </form>
   </details>
 

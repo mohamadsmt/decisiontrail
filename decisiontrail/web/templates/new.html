@@ -27,6 +27,14 @@
       <input id="title" name="title" value="{{ data.title }}" dir="auto" required>
     </div>
     <div class="field">
+      <label for="decision_type">Type</label>
+      <select id="decision_type" name="decision_type">
+        {% for decision_type in valid_decision_types %}
+        <option value="{{ decision_type }}" {% if data.decision_type == decision_type %}selected{% endif %}>{{ decision_type }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
       <label for="owner">Owner</label>
       <input id="owner" name="owner" value="{{ data.owner }}" dir="auto">
     </div>

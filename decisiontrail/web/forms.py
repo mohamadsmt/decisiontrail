@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
-from decisiontrail.models import DecisionRecord, VALID_DIRECTIONS, VALID_RELATION_TYPES, VALID_STATUSES
+from decisiontrail.models import DecisionRecord, VALID_DECISION_TYPES, VALID_DIRECTIONS, VALID_RELATION_TYPES, VALID_STATUSES
 from decisiontrail.relationships import normalize_related_decisions, parse_relation_lines, relation_to_metadata
 
 
@@ -14,6 +14,7 @@ VALID_ASSUMPTION_STATUSES = {"unvalidated", "pending", "validated", "invalidated
 @dataclass(frozen=True)
 class DecisionFormData:
     title: str = ""
+    decision_type: str = "general"
     owner: str = ""
     status: str = "proposed"
     context: str = ""
@@ -66,6 +67,8 @@ def validate_decision_form(
         errors.append("Title is required.")
     if data.status not in VALID_STATUSES:
         errors.append(f"Status must be one of: {', '.join(sorted(VALID_STATUSES))}.")
+    if data.decision_type not in VALID_DECISION_TYPES:
+        errors.append(f"Decision type must be one of: {', '.join(sorted(VALID_DECISION_TYPES))}.")
     if data.direction not in VALID_DIRECTIONS:
         errors.append("Direction must be auto, ltr, or rtl.")
     if data.revisit_on.strip():
@@ -90,6 +93,7 @@ def validate_decision_form(
 def form_to_metadata_updates(data: DecisionFormData) -> dict[str, Any]:
     return {
         "title": data.title.strip(),
+        "decision_type": data.decision_type,
         "status": data.status,
         "owner": data.owner.strip(),
         "context": data.context.strip(),
@@ -143,6 +147,7 @@ def related_decisions_to_text(record: DecisionRecord) -> str:
 def record_to_form_data(record: DecisionRecord) -> DecisionFormData:
     return DecisionFormData(
         title=record.title,
+        decision_type=record.decision_type,
         owner=record.owner,
         status=record.status,
         context=str(record.metadata.get("context", "") or ""),

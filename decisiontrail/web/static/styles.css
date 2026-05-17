@@ -332,7 +332,13 @@ details.panel > :last-child {
 
 .filters {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.filters input,
+.filters select {
+  width: auto;
 }
 
 input,
@@ -695,6 +701,74 @@ tbody tr:hover {
   border-block-start: 0;
 }
 
+.saved-view-form {
+  align-items: center;
+  border-block-start: 1px solid var(--line);
+  display: flex;
+  gap: 8px;
+  margin-block: 0 12px;
+  padding-block-start: 12px;
+}
+
+.saved-view-form input {
+  max-width: 260px;
+}
+
+.diff-block {
+  background: #111816;
+  border-radius: 7px;
+  color: #e8f1ee;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  max-height: 420px;
+  overflow: auto;
+  padding: 14px;
+  white-space: pre-wrap;
+}
+
+.graph-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  margin-block-end: 16px;
+  overflow-x: auto;
+  padding: 14px;
+}
+
+.decision-graph {
+  display: block;
+  min-width: 760px;
+  width: 100%;
+}
+
+.graph-node rect {
+  fill: #ffffff;
+  stroke: var(--line-strong);
+}
+
+.graph-node:hover rect {
+  stroke: var(--accent);
+}
+
+.graph-node-id {
+  fill: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.graph-node-title {
+  fill: var(--text);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.graph-edge-label {
+  fill: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
 @media (max-width: 760px) {
   .app-header,
   .page-title,
@@ -756,6 +830,19 @@ tbody tr:hover {
 
   .filters,
   .pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .filters input,
+  .filters select,
+  .saved-view-form,
+  .saved-view-form input {
+    max-width: none;
+    width: 100%;
+  }
+
+  .saved-view-form {
     align-items: stretch;
     flex-direction: column;
   }

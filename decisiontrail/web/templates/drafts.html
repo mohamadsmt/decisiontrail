@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Draft inbox{% endblock %}
+{% block content %}
+<section class="page-title">
+  <div>
+    <h1>Draft inbox</h1>
+    <p>Private local draft decisions from meeting notes and agent workflows.</p>
+  </div>
+  <div class="page-actions">
+    <a class="button" href="/decisions/new">Add decision</a>
+  </div>
+</section>
+
+{% if errors %}
+<section class="alert" role="alert">
+  <strong>Action failed</strong>
+  <ul>
+    {% for error in errors %}
+    <li>{{ error }}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if created %}
+<section class="panel">
+  <h2>Saved drafts</h2>
+  <ul class="compact-list">
+    {% for draft in created %}
+    <li><strong>{{ draft.id }}</strong><span dir="auto">{{ draft.title }}</span></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section class="panel">
+  <div class="panel-heading">
+    <div>
+      <h2>Create drafts from meeting notes</h2>
+      <p class="panel-subtitle">Drafts are saved under the private local `.decisiontrail/drafts/` inbox.</p>
+    </div>
+  </div>
+  <form class="compact-form" method="post" action="/drafts/from-meeting">
+    <div class="field">
+      <label for="meeting_text">Meeting notes</label>
+      <textarea id="meeting_text" name="meeting_text" rows="8" dir="auto"></textarea>
+    </div>
+    <button class="button-secondary" type="submit">Save drafts</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Draft decisions</h2>
+  <ul class="compact-list">
+    {% for draft in drafts %}
+    <li>
+      <strong>{{ draft.id }}</strong>
+      <span dir="auto">{{ draft.title }}</span>
+      <small>{{ draft.source }} · {{ draft.created_at }} · {{ draft.options|length }} options · {{ draft.assumptions|length }} assumptions · {{ draft.success_metrics|length }} metrics</small>
+      <form class="inline-form" method="post" action="/drafts/{{ draft.id }}/promote">
+        <input name="owner" placeholder="Owner" aria-label="Owner" dir="auto">
+        <select name="status" aria-label="Status">
+          <option value="proposed">proposed</option>
+          <option value="accepted">accepted</option>
+          <option value="rejected">rejected</option>
+        </select>
+        <button class="button-secondary" type="submit">Promote</button>
+      </form>
+      <form class="inline-form" method="post" action="/drafts/{{ draft.id }}/delete">
+        <button class="button-secondary" type="submit">Delete draft</button>
+      </form>
+    </li>
+    {% else %}
+    <li>No local drafts.</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}

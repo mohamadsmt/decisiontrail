@@ -9,6 +9,8 @@ from typing import Any
 VALID_STATUSES = {"proposed", "accepted", "rejected", "superseded", "reviewed"}
 VALID_DIRECTIONS = {"auto", "ltr", "rtl"}
 VALID_RELATION_TYPES = {"related_to", "depends_on", "blocks", "supersedes", "informs"}
+VALID_EVIDENCE_TYPES = {"url", "file", "note", "experiment"}
+VALID_DECISION_TYPES = {"general", "pricing", "hiring", "product_bet", "risk", "technical_adr"}
 
 
 def as_date(value: Any) -> date | None:
@@ -164,6 +166,19 @@ class DecisionRecord:
     @property
     def tags(self) -> list[Any]:
         return normalize_list(self.metadata.get("tags"))
+
+    @property
+    def decision_type(self) -> str:
+        value = str(self.metadata.get("decision_type", "") or "general").strip()
+        return value if value in VALID_DECISION_TYPES else "general"
+
+    @property
+    def evidence(self) -> list[Any]:
+        return normalize_list(self.metadata.get("evidence"))
+
+    @property
+    def metric_updates(self) -> list[Any]:
+        return normalize_list(self.metadata.get("metric_updates"))
 
     @property
     def parent_id(self) -> str:

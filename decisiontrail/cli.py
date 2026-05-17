@@ -10,9 +10,14 @@ from rich.console import Console
 from rich.table import Table
 
 from decisiontrail.config import dump_default_config, load_config
+from decisiontrail.annotations import append_evidence, append_metric_update, evidence_items, metric_updates, remove_evidence_at
+from decisiontrail.drafts import create_drafts_from_meeting, delete_draft, list_drafts, load_draft, promote_draft
 from decisiontrail.export import export_html
+from decisiontrail.graph import graph_json, graph_mermaid
 from decisiontrail.models import (
+    VALID_DECISION_TYPES,
     VALID_DIRECTIONS,
+    VALID_EVIDENCE_TYPES,
     VALID_RELATION_TYPES,
     VALID_STATUSES,
     filter_records_by_tag,
@@ -40,17 +45,30 @@ from decisiontrail.review import (
 from decisiontrail.storage import (
     copy_decision_record,
     create_decision,
+    diff_decision_records,
     ensure_template,
     load_decision,
     load_decisions,
+    load_history_snapshot,
     read_history_events,
+    restore_history_snapshot,
     write_versioned_decision,
 )
+from decisiontrail.search import search_records
+from decisiontrail.views import delete_user_view, list_views, resolve_view, save_user_view
 
 
 app = typer.Typer(help="Local-first decision records for product, business, and strategy work.")
 run_app = typer.Typer(help="Run built-in local actions.")
+evidence_app = typer.Typer(help="Manage evidence references for a decision.")
+metric_app = typer.Typer(help="Manage metric updates for a decision.")
+drafts_app = typer.Typer(help="Manage local draft decisions.")
+views_app = typer.Typer(help="Manage private local saved views.")
 app.add_typer(run_app, name="run")
+app.add_typer(evidence_app, name="evidence")
+app.add_typer(metric_app, name="metric")
+app.add_typer(drafts_app, name="drafts")
+app.add_typer(views_app, name="views")
 console = Console()
 
 
@@ -148,6 +166,7 @@ def new(
     status: str = typer.Option("proposed", "--status", help="Decision status."),
     language: str = typer.Option("en", "--language", help="Content language code."),
     direction: str = typer.Option("auto", "--direction", help="Text direction: auto, ltr, or rtl."),
+    decision_type: str = typer.Option("general", "--type", help="Decision type template."),
     revisit_on: str = typer.Option("", "--revisit-on", help="ISO revisit date."),
     tag: Optional[list[str]] = typer.Option(None, "--tag", help="Decision tag. Repeat to add multiple tags."),
     parent: str = typer.Option("", "--parent", help="Parent decision ID."),
@@ -158,6 +177,8 @@ def new(
         raise typer.BadParameter(f"Status must be one of: {', '.join(sorted(VALID_STATUSES))}")
     if direction not in VALID_DIRECTIONS:
         raise typer.BadParameter("Direction must be auto, ltr, or rtl.")
+    if decision_type not in VALID_DECISION_TYPES:
+        raise typer.BadParameter(f"Decision type must be one of: {', '.join(sorted(VALID_DECISION_TYPES))}")
 
     root, config = _load(path)
     ensure_template(root, config)
@@ -179,6 +200,7 @@ def new(
         status=status,
         language=language,
         direction=direction,
+        decision_type=decision_type,
         revisit_on=revisit_on,
         tags=tag or [],
         parent_id=parent,
@@ -186,6 +208,39 @@ def new(
         source="cli",
     )
     console.print(f"Created [bold]{record.id}[/bold]: {record.path}")
+
+
+@app.command()
+def search(
+    query: str,
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Project path."),
+    status: Optional[str] = typer.Option(None, "--status", help="Filter by status."),
+    owner: Optional[str] = typer.Option(None, "--owner", help="Filter by owner."),
+    tag: Optional[str] = typer.Option(None, "--tag", help="Filter by tag."),
+    view: Optional[str] = typer.Option(None, "--view", help="Apply a saved or built-in view."),
+    limit: int = typer.Option(20, "--limit", help="Maximum records to show."),
+) -> None:
+    """Search decision records across metadata and body."""
+    root, config = _load(path)
+    view_data = resolve_view(root, view or "")
+    q = query
+    due = False
+    if view_data:
+        q = q or view_data["q"]
+        status = status or view_data["status"] or None
+        owner = owner or view_data["owner"] or None
+        tag = tag or view_data["tag"] or None
+        due = bool(view_data["due"])
+    hits = search_records(load_decisions(root, config), q, status=status, owner=owner, tag=tag, due=due, limit=limit)
+    table = Table(title="Decision search")
+    table.add_column("ID", no_wrap=True)
+    table.add_column("Score", justify="right")
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Tags")
+    table.add_column("Title")
+    for hit in hits:
+        table.add_row(hit.record.id, str(hit.score), hit.record.status, ", ".join(tag_labels(hit.record)) or "-", hit.record.title)
+    console.print(table)
 
 
 @app.command(name="list")
@@ -407,6 +462,38 @@ def history(
     console.print(table)
 
 
+@app.command(name="diff")
+def diff_command(
+    identifier: str,
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Project path."),
+    from_version: int = typer.Option(..., "--from", help="Source history version."),
+    to_version: str = typer.Option("current", "--to", help="Target version number or current."),
+) -> None:
+    """Show a unified diff between a history snapshot and another version."""
+    root, config = _load(path)
+    current = load_decision(root, config, identifier)
+    source = load_history_snapshot(root, config, current.id, from_version)
+    target = current if to_version == "current" else load_history_snapshot(root, config, current.id, int(to_version))
+    diff_text = diff_decision_records(source, target)
+    console.print(diff_text or "No differences.")
+
+
+@app.command()
+def restore(
+    identifier: str,
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Project path."),
+    version: int = typer.Option(..., "--version", help="History version to restore."),
+    confirm_id: str = typer.Option("", "--confirm-id", help="Must exactly match the decision ID."),
+) -> None:
+    """Restore a history snapshot as a new current version."""
+    root, config = _load(path)
+    record = load_decision(root, config, identifier)
+    if confirm_id.strip() != record.id:
+        raise typer.BadParameter(f"Type {record.id} with --confirm-id to restore.")
+    result = restore_history_snapshot(root, config, record, version=version, source="cli")
+    console.print(f"Restored [bold]{record.id}[/bold] from v{version} as v{result.version}.")
+
+
 @app.command()
 def tree(path: Path = typer.Option(Path("."), "--path", "-p", help="Project path.")) -> None:
     """Show the decision hierarchy."""
@@ -488,6 +575,10 @@ def parse_meeting(
                 source="cli",
             )
             console.print(f"Created [bold]{record.id}[/bold]: {record.path}")
+    else:
+        stored = create_drafts_from_meeting(root, meeting_file.read_text(encoding="utf-8"), source_name=meeting_file.name)
+        for draft in stored:
+            console.print(f"Saved draft [bold]{draft.id}[/bold]: {draft.title}")
 
 
 @app.command(name="export")
@@ -504,6 +595,22 @@ def export_command(
     output_dir = output or (root / config.export_dir)
     pages = export_html(records, output_dir, config)
     console.print(f"Exported {len(pages)} HTML files to [bold]{output_dir}[/bold].")
+
+
+@app.command()
+def graph(
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Project path."),
+    format: str = typer.Option("mermaid", "--format", help="Output format: mermaid or json."),
+) -> None:
+    """Print the local decision graph."""
+    root, config = _load(path)
+    records = load_decisions(root, config)
+    if format == "json":
+        console.print(graph_json(records))
+        return
+    if format != "mermaid":
+        raise typer.BadParameter("Graph format must be mermaid or json.")
+    console.print(graph_mermaid(records))
 
 
 @app.command()
@@ -539,6 +646,201 @@ def ui(
     console.print(f"Starting DecisionTrail UI at [bold]{url}[/bold]")
     console.print(f"Using local project path: [bold]{root}[/bold]")
     uvicorn.run(create_web_app(root), host=host, port=port)
+
+
+@evidence_app.command("add")
+def evidence_add(
+    identifier: str,
+    title: str,
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Project path."),
+    evidence_type: str = typer.Option("url", "--type", help="Evidence type."),
+    ref: str = typer.Option("", "--ref", help="URL, local path, or external reference."),
+    note: str = typer.Option("", "--note", help="Optional evidence note."),
+    added_on: str = typer.Option("", "--added-on", help="ISO date. Defaults to today."),
+) -> None:
+    """Add an evidence reference to a decision."""
+    if evidence_type not in VALID_EVIDENCE_TYPES:
+        raise typer.BadParameter(f"Evidence type must be one of: {', '.join(sorted(VALID_EVIDENCE_TYPES))}.")
+    root, config = _load(path)
+    record = load_decision(root, config, identifier)
+    previous = copy_decision_record(record)
+    item = append_evidence(record, title=title, evidence_type=evidence_type, ref=ref, note=note, added_on=added_on)
+    write_versioned_decision(root, config, previous, record, source="cli", action="evidence_added")
+    console.print(f"Added evidence [bold]{item['title']}[/bold] to {record.id}.")
+
+
+@evidence_app.command("list")
+def evidence_list(
+    identifier: str,
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Project path."),
+) -> None:
+    """List evidence references for a decision."""
+    root, config = _load(path)
+    record = load_decision(root, config, identifier)
+    table = Table(title=f"Evidence for {record.id}")
+    table.add_column("#", justify="right")
+    table.add_column("Type")
+    table.add_column("Title")
+    table.add_column("Reference")
+    table.add_column("Added")
+    for index, item in enumerate(evidence_items(record)):
+        table.add_row(str(index), item["type"], item["title"], item["ref"] or item["note"], item["added_on"])
+    console.print(table)
+
+
+@evidence_app.command("remove")
+def evidence_remove(
+    identifier: str,
+    index: int,
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Project path."),
+) -> None:
+    """Remove one evidence reference by zero-based index."""
+    root, config = _load(path)
+    record = load_decision(root, config, identifier)
+    previous = copy_decision_record(record)
+    removed = remove_evidence_at(record, index)
+    write_versioned_decision(root, config, previous, record, source="cli", action="evidence_removed")
+    console.print(f"Removed evidence [bold]{removed['title']}[/bold] from {record.id}.")
+
+
+@metric_app.command("add")
+def metric_add(
+    identifier: str,
+    name: str,
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Project path."),
+    value: str = typer.Option("", "--value", help="Measured value."),
+    measured_on: str = typer.Option("", "--measured-on", help="ISO date. Defaults to today."),
+    note: str = typer.Option("", "--note", help="Optional metric note."),
+) -> None:
+    """Add a metric update to a decision."""
+    root, config = _load(path)
+    record = load_decision(root, config, identifier)
+    previous = copy_decision_record(record)
+    item = append_metric_update(record, name=name, value=value, measured_on=measured_on, note=note)
+    write_versioned_decision(root, config, previous, record, source="cli", action="metric_added")
+    console.print(f"Added metric [bold]{item['name']}[/bold] to {record.id}.")
+
+
+@metric_app.command("list")
+def metric_list(
+    identifier: str,
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Project path."),
+) -> None:
+    """List metric updates for a decision."""
+    root, config = _load(path)
+    record = load_decision(root, config, identifier)
+    table = Table(title=f"Metric updates for {record.id}")
+    table.add_column("Name")
+    table.add_column("Value")
+    table.add_column("Measured")
+    table.add_column("Note")
+    for item in metric_updates(record):
+        table.add_row(item["name"], item["value"], item["measured_on"], item["note"])
+    console.print(table)
+
+
+@drafts_app.command("list")
+def drafts_list(path: Path = typer.Option(Path("."), "--path", "-p", help="Project path.")) -> None:
+    """List local draft decisions."""
+    root, _ = _load(path)
+    table = Table(title="Draft decisions")
+    table.add_column("ID")
+    table.add_column("Source")
+    table.add_column("Created")
+    table.add_column("Title")
+    for draft in list_drafts(root):
+        table.add_row(draft.id, draft.source, draft.created_at, draft.title)
+    console.print(table)
+
+
+@drafts_app.command("show")
+def drafts_show(draft_id: str, path: Path = typer.Option(Path("."), "--path", "-p", help="Project path.")) -> None:
+    """Show a local draft decision."""
+    root, _ = _load(path)
+    draft = load_draft(root, draft_id)
+    console.print_json(data={
+        "id": draft.id,
+        "source": draft.source,
+        "title": draft.title,
+        "context": draft.context,
+        "options": draft.options,
+        "assumptions": draft.assumptions,
+        "success_metrics": draft.success_metrics,
+        "tags": draft.tags,
+        "created_at": draft.created_at,
+        "raw_excerpt": draft.raw_excerpt,
+    })
+
+
+@drafts_app.command("promote")
+def drafts_promote(
+    draft_id: str,
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Project path."),
+    owner: str = typer.Option("", "--owner", help="Decision owner."),
+    status: str = typer.Option("proposed", "--status", help="Decision status."),
+) -> None:
+    """Promote a local draft into a real decision and remove the draft."""
+    root, config = _load(path)
+    record = promote_draft(root, config, draft_id, owner=owner, status=status)
+    console.print(f"Promoted draft to [bold]{record.id}[/bold]: {record.path}")
+
+
+@drafts_app.command("delete")
+def drafts_delete(draft_id: str, path: Path = typer.Option(Path("."), "--path", "-p", help="Project path.")) -> None:
+    """Delete a local draft decision."""
+    root, _ = _load(path)
+    draft = delete_draft(root, draft_id)
+    console.print(f"Deleted draft [bold]{draft.id}[/bold].")
+
+
+@views_app.command("list")
+def views_list(path: Path = typer.Option(Path("."), "--path", "-p", help="Project path.")) -> None:
+    """List built-in and private local saved views."""
+    root, _ = _load(path)
+    table = Table(title="Saved views")
+    table.add_column("Name")
+    table.add_column("Kind")
+    table.add_column("Query")
+    table.add_column("Status")
+    table.add_column("Owner")
+    table.add_column("Tag")
+    table.add_column("Due")
+    for view in list_views(root):
+        table.add_row(
+            view["name"],
+            "built-in" if view.get("builtin") else "local",
+            view["q"] or "-",
+            view["status"] or "-",
+            view["owner"] or "-",
+            view["tag"] or "-",
+            "yes" if view["due"] else "no",
+        )
+    console.print(table)
+
+
+@views_app.command("save")
+def views_save(
+    name: str,
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Project path."),
+    q: str = typer.Option("", "--q", help="Search query."),
+    status: str = typer.Option("", "--status", help="Status filter."),
+    owner: str = typer.Option("", "--owner", help="Owner filter."),
+    tag: str = typer.Option("", "--tag", help="Tag filter."),
+    due: bool = typer.Option(False, "--due", help="Limit to due decisions."),
+) -> None:
+    """Save a private local view."""
+    root, _ = _load(path)
+    view = save_user_view(root, name=name, q=q, status=status, owner=owner, tag=tag, due=due)
+    console.print(f"Saved local view [bold]{view['name']}[/bold].")
+
+
+@views_app.command("delete")
+def views_delete(name: str, path: Path = typer.Option(Path("."), "--path", "-p", help="Project path.")) -> None:
+    """Delete a private local view."""
+    root, _ = _load(path)
+    if not delete_user_view(root, name):
+        raise typer.BadParameter(f"No local view found for: {name}")
+    console.print(f"Deleted local view [bold]{name}[/bold].")
 
 
 @run_app.command("weekly-review")

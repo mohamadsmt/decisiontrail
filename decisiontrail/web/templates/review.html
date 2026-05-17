@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Review inbox{% endblock %}
+{% block content %}
+<section class="page-title">
+  <div>
+    <h1>Review inbox</h1>
+    <p>Decision work that needs a follow-up, metric, assumption update, or outcome review.</p>
+  </div>
+  <div class="page-actions">
+    <a class="button-secondary" href="/?view=Due">Open due view</a>
+    <a class="button" href="/decisions/new">Add decision</a>
+  </div>
+</section>
+
+<section class="metric-strip" aria-label="Review inbox summary">
+  <article><span>{{ due|length }}</span><strong>Due reviews</strong></article>
+  <article><span>{{ missing_metrics|length }}</span><strong>Missing metrics</strong></article>
+  <article><span>{{ unvalidated_assumptions|length }}</span><strong>Open assumptions</strong></article>
+  <article><span>{{ low_scores|length }}</span><strong>Low scores</strong></article>
+</section>
+
+<section class="grid-two">
+  <article class="panel">
+    <h2>Due reviews</h2>
+    <ul class="compact-list">
+      {% for record in due %}
+      <li><a href="/decisions/{{ record.id }}#metrics">{{ record.id }}</a><span dir="auto">{{ record.title }}</span><small>Revisit {{ record.revisit_on or "-" }}</small></li>
+      {% else %}
+      <li>No decisions are due.</li>
+      {% endfor %}
+    </ul>
+  </article>
+  <article class="panel">
+    <h2>Missing metrics</h2>
+    <ul class="compact-list">
+      {% for record in missing_metrics %}
+      <li><a href="/decisions/{{ record.id }}#metrics">{{ record.id }}</a><span dir="auto">{{ record.title }}</span></li>
+      {% else %}
+      <li>No decisions are missing metrics.</li>
+      {% endfor %}
+    </ul>
+  </article>
+  <article class="panel">
+    <h2>Unvalidated assumptions</h2>
+    <ul class="compact-list">
+      {% for item in unvalidated_assumptions %}
+      <li><a href="/decisions/{{ item.decision_id }}#assumptions">{{ item.decision_id }}</a><span dir="auto">{{ item.text }}</span><small>{{ item.status }}</small></li>
+      {% else %}
+      <li>No assumptions need validation.</li>
+      {% endfor %}
+    </ul>
+  </article>
+  <article class="panel">
+    <h2>Low scores</h2>
+    <ul class="compact-list">
+      {% for score in low_scores %}
+      <li><a href="/decisions/{{ score.decision_id }}">{{ score.decision_id }}</a><span dir="auto">{{ score.title }}</span><small>{{ score.score }} · {{ score.missing|join(", ") }}</small></li>
+      {% else %}
+      <li>No records are below the score threshold.</li>
+      {% endfor %}
+    </ul>
+  </article>
+</section>
+{% endblock %}
