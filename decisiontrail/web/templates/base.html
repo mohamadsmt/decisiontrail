@@ -9,14 +9,22 @@
 </head>
 <body>
   <header class="app-header">
-    <a class="brand" href="/">DecisionTrail</a>
-    <nav aria-label="Primary">
+    <div class="header-identity">
+      <a class="brand" href="/">DecisionTrail</a>
+      <span class="header-context">Local decision log</span>
+    </div>
+    <nav class="primary-nav" aria-label="Primary">
       <a href="/">Dashboard</a>
       <a href="/review">Review</a>
       <a href="/graph">Graph</a>
       <a href="/drafts">Drafts</a>
-      <a href="/audit">Audit</a>
-      <a href="/meeting-parser">Meeting parser</a>
+      <details class="nav-more">
+        <summary>More</summary>
+        <div class="nav-more-menu">
+          <a href="/audit">Audit</a>
+          <a href="/meeting-parser">Meeting parser</a>
+        </div>
+      </details>
       <a class="button button-small" href="/decisions/new">New decision</a>
     </nav>
   </header>

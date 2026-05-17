@@ -1,30 +1,30 @@
 {% extends "base.html" %}
 {% block title %}DecisionTrail dashboard{% endblock %}
 {% block content %}
-<section class="page-title">
-  <div>
+<section class="page-title dashboard-hero">
+  <div class="hero-copy">
     <h1>Decision dashboard</h1>
     <p>Local records in <code>{{ root }}</code></p>
   </div>
   <div class="page-actions">
+    <a class="button" href="/decisions/new">Add decision</a>
+    <a class="button-secondary" href="/review">Review inbox</a>
+    <a class="button-secondary" href="/graph">Graph</a>
     <form method="post" action="/export-html">
       <button class="button-secondary" type="submit">Export HTML</button>
     </form>
-    <a class="button-secondary" href="/graph">Graph</a>
-    <a class="button-secondary" href="/review">Review inbox</a>
-    <a class="button" href="/decisions/new">Add decision</a>
   </div>
 </section>
 
 <section class="metric-strip" aria-label="Decision health summary">
-  <article><span>{{ records|length }}</span><strong>Total records</strong></article>
-  <article><span>{{ report.due|length }}</span><strong>Due reviews</strong></article>
-  <article><span>{{ report.missing_metrics|length }}</span><strong>Missing metrics</strong></article>
-  <article><span>{{ report.unvalidated_assumptions|length }}</span><strong>Unvalidated assumptions</strong></article>
-  <article><span>{{ low_scores|length }}</span><strong>Low scores</strong></article>
+  <article><strong>Total records</strong><span>{{ records|length }}</span></article>
+  <article><strong>Due reviews</strong><span>{{ report.due|length }}</span></article>
+  <article><strong>Missing metrics</strong><span>{{ report.missing_metrics|length }}</span></article>
+  <article><strong>Unvalidated assumptions</strong><span>{{ report.unvalidated_assumptions|length }}</span></article>
+  <article><strong>Low scores</strong><span>{{ low_scores|length }}</span></article>
 </section>
 
-<section class="panel">
+<section class="panel dashboard-workspace">
   <div class="panel-heading">
     <div>
       <h2>Decision records</h2>
@@ -32,43 +32,78 @@
         Showing {{ pagination.start }}-{{ pagination.end }} of {{ pagination.total }} matching records
       </p>
     </div>
-    <form class="filters" method="get" action="/">
-      <input name="q" value="{{ search_query }}" placeholder="Search" aria-label="Search decisions">
-      <select name="view" aria-label="Saved view">
-        <option value="">No view</option>
-        {% for view in view_options %}
-        <option value="{{ view.name }}" {% if selected_view|lower == view.name|lower %}selected{% endif %}>{{ view.name }}{% if view.builtin %} · built-in{% endif %}</option>
-        {% endfor %}
-      </select>
-      <select name="status" aria-label="Status filter">
-        <option value="">All statuses</option>
-        {% for status in valid_statuses %}
-        <option value="{{ status }}" {% if status_filter == status %}selected{% endif %}>{{ status }}</option>
-        {% endfor %}
-      </select>
-      <input name="owner" value="{{ owner_filter }}" placeholder="Owner" aria-label="Owner filter">
-      <select name="tag" aria-label="Tag filter">
-        <option value="">All tags</option>
-        {% for tag in tag_options %}
-        <option value="{{ tag }}" {% if tag_filter|lower == tag|lower %}selected{% endif %}>{{ tag }}</option>
-        {% endfor %}
-      </select>
-      <select name="per_page" aria-label="Rows per page">
-        {% for option in per_page_options %}
-        <option value="{{ option }}" {% if pagination.per_page == option %}selected{% endif %}>{{ option }} rows</option>
-        {% endfor %}
-      </select>
-      <button type="submit">Filter</button>
-    </form>
   </div>
-  <form class="saved-view-form" method="post" action="/views">
-    <input name="name" placeholder="Save current filters as..." aria-label="Saved view name" required>
-    <input type="hidden" name="q" value="{{ search_query }}">
-    <input type="hidden" name="status" value="{{ status_filter }}">
-    <input type="hidden" name="owner" value="{{ owner_filter }}">
-    <input type="hidden" name="tag" value="{{ tag_filter }}">
-    <button class="button-secondary button-small" type="submit">Save view</button>
-  </form>
+  <div class="queue-tools">
+    <form class="filters search-form" method="get" action="/">
+      <div class="search-row">
+        <input name="q" value="{{ search_query }}" placeholder="Search decisions" aria-label="Search decisions">
+        <input type="hidden" name="view" value="{{ selected_view }}">
+        <input type="hidden" name="status" value="{{ status_filter }}">
+        <input type="hidden" name="owner" value="{{ owner_filter }}">
+        <input type="hidden" name="tag" value="{{ tag_filter }}">
+        <input type="hidden" name="per_page" value="{{ pagination.per_page }}">
+        <button type="submit">Search</button>
+      </div>
+    </form>
+    <details class="filter-drawer">
+      <summary>Filters</summary>
+      <form class="filters" method="get" action="/">
+        <input type="hidden" name="q" value="{{ search_query }}">
+        <div class="filter-grid">
+          <label class="field">
+            <span>Saved view</span>
+            <select name="view" aria-label="Saved view">
+              <option value="">No view</option>
+              {% for view in view_options %}
+              <option value="{{ view.name }}" {% if selected_view|lower == view.name|lower %}selected{% endif %}>{{ view.name }}{% if view.builtin %} · built-in{% endif %}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="field">
+            <span>Status</span>
+            <select name="status" aria-label="Status filter">
+              <option value="">All statuses</option>
+              {% for status in valid_statuses %}
+              <option value="{{ status }}" {% if status_filter == status %}selected{% endif %}>{{ status }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="field">
+            <span>Owner</span>
+            <input name="owner" value="{{ owner_filter }}" placeholder="Any owner" aria-label="Owner filter">
+          </label>
+          <label class="field">
+            <span>Tag</span>
+            <select name="tag" aria-label="Tag filter">
+              <option value="">All tags</option>
+              {% for tag in tag_options %}
+              <option value="{{ tag }}" {% if tag_filter|lower == tag|lower %}selected{% endif %}>{{ tag }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="field">
+            <span>Rows</span>
+            <select name="per_page" aria-label="Rows per page">
+              {% for option in per_page_options %}
+              <option value="{{ option }}" {% if pagination.per_page == option %}selected{% endif %}>{{ option }} rows</option>
+              {% endfor %}
+            </select>
+          </label>
+          <div class="filter-actions">
+            <button type="submit">Apply filters</button>
+          </div>
+        </div>
+      </form>
+      <form class="saved-view-form" method="post" action="/views">
+        <input name="name" placeholder="Save current filters as..." aria-label="Saved view name" required>
+        <input type="hidden" name="q" value="{{ search_query }}">
+        <input type="hidden" name="status" value="{{ status_filter }}">
+        <input type="hidden" name="owner" value="{{ owner_filter }}">
+        <input type="hidden" name="tag" value="{{ tag_filter }}">
+        <button class="button-secondary button-small" type="submit">Save view</button>
+      </form>
+    </details>
+  </div>
   <div class="table-wrap">
     <table class="decision-table">
       <thead>
@@ -76,8 +111,6 @@
           <th>Decision</th>
           <th>Status</th>
           <th>Owner</th>
-          <th>Parent</th>
-          <th>Children</th>
           <th>Tags</th>
           <th>Score</th>
           <th>Revisit</th>
@@ -87,19 +120,21 @@
         {% for record in filtered_records %}
         <tr>
           <td class="decision-cell" data-label="Decision">
-            <a class="decision-id-link" href="/decisions/{{ record.id }}">{{ record.id }}</a>
-            <strong dir="auto">{{ record.title }}</strong>
+            <div class="decision-primary">
+              <a class="decision-id-link" href="/decisions/{{ record.id }}">{{ record.id }}</a>
+              <strong dir="auto">{{ record.title }}</strong>
+            </div>
+            <div class="decision-meta">
+              {% if record.parent_id %}
+              <span>Parent <a href="/decisions/{{ record.parent_id }}">{{ record.parent_id }}</a></span>
+              {% else %}
+              <span>Parent -</span>
+              {% endif %}
+              <span>{{ records|selectattr("parent_id", "equalto", record.id)|list|length }} children</span>
+            </div>
           </td>
           <td data-label="Status"><span class="status-pill">{{ record.status }}</span></td>
           <td data-label="Owner"><span dir="auto">{{ record.owner or "Unassigned" }}</span></td>
-          <td data-label="Parent">
-            {% if record.parent_id %}
-            <a href="/decisions/{{ record.parent_id }}">{{ record.parent_id }}</a>
-            {% else %}
-            -
-            {% endif %}
-          </td>
-          <td data-label="Children">{{ records|selectattr("parent_id", "equalto", record.id)|list|length }}</td>
           <td data-label="Tags">
             {% set tags = tag_labels(record) %}
             {% if tags %}
@@ -146,26 +181,35 @@
   {% endif %}
 </section>
 
-<section class="grid-two">
-  <article class="panel">
-    <h2>Due reviews</h2>
-    <ul class="compact-list">
-      {% for record in report.due %}
-      <li><a href="/decisions/{{ record.id }}">{{ record.id }}</a><span dir="auto">{{ record.title }}</span></li>
-      {% else %}
-      <li>No decisions are due.</li>
-      {% endfor %}
-    </ul>
-  </article>
-  <article class="panel">
-    <h2>Unvalidated assumptions</h2>
-    <ul class="compact-list">
-      {% for item in report.unvalidated_assumptions %}
-      <li><a href="/decisions/{{ item.decision_id }}#assumptions">{{ item.decision_id }}</a><span dir="auto">{{ item.text }}</span></li>
-      {% else %}
-      <li>No unvalidated assumptions.</li>
-      {% endfor %}
-    </ul>
-  </article>
+<section class="panel attention-panel">
+  <div class="panel-heading">
+    <div>
+      <h2>Needs attention</h2>
+      <p class="panel-subtitle">Due reviews and Unvalidated assumptions that need a follow-up.</p>
+    </div>
+    <a class="button-secondary button-small" href="/review">Open review inbox</a>
+  </div>
+  <div class="attention-grid">
+    <article>
+      <h3>Due reviews</h3>
+      <ul class="compact-list">
+        {% for record in report.due %}
+        <li><a href="/decisions/{{ record.id }}">{{ record.id }}</a><span dir="auto">{{ record.title }}</span></li>
+        {% else %}
+        <li>No decisions are due.</li>
+        {% endfor %}
+      </ul>
+    </article>
+    <article>
+      <h3>Unvalidated assumptions</h3>
+      <ul class="compact-list">
+        {% for item in report.unvalidated_assumptions %}
+        <li><a href="/decisions/{{ item.decision_id }}#assumptions">{{ item.decision_id }}</a><span dir="auto">{{ item.text }}</span></li>
+        {% else %}
+        <li>No unvalidated assumptions.</li>
+        {% endfor %}
+      </ul>
+    </article>
+  </div>
 </section>
 {% endblock %}
