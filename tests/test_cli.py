@@ -74,7 +74,13 @@ def test_cli_review_updates_record(tmp_path: Path) -> None:
     assert result.exit_code == 0
     content = next((tmp_path / "decisions").glob("*.md")).read_text(encoding="utf-8")
     assert "status: reviewed" in content
+    assert "version: 2" in content
     assert "The decision worked." in content
+
+    history = runner.invoke(app, ["history", "DEC-2026-001", "--path", str(tmp_path)])
+    assert history.exit_code == 0
+    assert "Version history for DEC-2026-001" in history.output
+    assert "reviewed" in history.output
 
 
 def test_cli_run_weekly_review_and_check_warn_by_default(tmp_path: Path) -> None:

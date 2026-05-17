@@ -21,4 +21,5 @@ def test_local_config_overrides_project_config(tmp_path: Path) -> None:
 
     assert config.decisions_dir == "decisions.local"
     assert config.templates_dir == "templates"
+    assert config.history_dir == ".decisiontrail/history"
     assert config.score_threshold == 80

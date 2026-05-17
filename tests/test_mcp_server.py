@@ -11,7 +11,7 @@ import pytest
 from decisiontrail.config import load_config
 import decisiontrail.mcp_server as mcp_server
 from decisiontrail.mcp_server import DecisionTrailMCPService, main, parse_args, resolve_root
-from decisiontrail.storage import create_decision, load_decision
+from decisiontrail.storage import create_decision, load_decision, read_history_events
 
 
 def test_mcp_service_records_updates_reviews_and_exports_decision(tmp_path: Path) -> None:
@@ -36,14 +36,17 @@ def test_mcp_service_records_updates_reviews_and_exports_decision(tmp_path: Path
     assert created["action"] == "created"
     assert created["record"]["language"] == "fa"
     assert created["record"]["direction"] == "rtl"
+    assert created["record"]["metadata"]["version"] == 1
 
     updated = service.update_decision(record_id, owner="Product", body="# Custom body\n")
     assert updated["path"] == original_path
     assert updated["record"]["owner"] == "Product"
     assert updated["record"]["body"] == "# Custom body\n"
+    assert updated["record"]["metadata"]["version"] == 2
 
     status = service.update_status(record_id, "accepted")
     assert status["record"]["status"] == "accepted"
+    assert status["record"]["metadata"]["version"] == 3
 
     assumption = service.update_assumption(
         record_id,
@@ -53,6 +56,7 @@ def test_mcp_service_records_updates_reviews_and_exports_decision(tmp_path: Path
         reviewed_on="2026-08-15",
     )
     assert assumption["record"]["metadata"]["assumptions"][0]["status"] == "validated"
+    assert assumption["record"]["metadata"]["version"] == 4
 
     reviewed = service.review_decision(
         record_id,
@@ -61,8 +65,18 @@ def test_mcp_service_records_updates_reviews_and_exports_decision(tmp_path: Path
         metric_note="No support increase.",
     )
     assert reviewed["record"]["status"] == "reviewed"
+    assert reviewed["record"]["metadata"]["version"] == 5
     assert reviewed["record"]["metadata"]["metric_notes"] == [
         {"reviewed_on": "2026-09-01", "note": "No support increase."}
+    ]
+    history = service.get_history(record_id)
+    assert history["current_version"] == 5
+    assert [event["action"] for event in history["history"]] == [
+        "created",
+        "updated",
+        "status_updated",
+        "assumption_updated",
+        "reviewed",
     ]
 
     audit = service.audit_decisions()
@@ -81,9 +95,11 @@ def test_mcp_service_relationships_parse_meeting_and_guarded_delete(tmp_path: Pa
 
     related = service.add_relation(child["id"], target["id"], relation_type="depends_on", note="Required first")
     assert related["record"]["outgoing_relations"][0]["target_id"] == target["id"]
+    assert related["record"]["metadata"]["version"] == 2
 
     removed = service.remove_relation(child["id"], 0)
     assert removed["record"]["outgoing_relations"] == []
+    assert removed["record"]["metadata"]["version"] == 3
 
     blocked = service.delete_decision(parent["id"], confirm_id=parent["id"])
     assert blocked["deleted"] is False
@@ -92,7 +108,9 @@ def test_mcp_service_relationships_parse_meeting_and_guarded_delete(tmp_path: Pa
     free = service.record_decision(title="Free", created_on="2026-05-12")["record"]
     deleted = service.delete_decision(free["id"], confirm_id=free["id"])
     assert deleted["deleted"] is True
+    assert deleted["version"] == 2
     assert not Path(deleted["path"]).exists()
+    assert read_history_events(tmp_path, load_config(tmp_path), free["id"])[-1]["action"] == "deleted"
 
     parsed = service.parse_meeting("- Decision: Launch parser\nMetric: activation_rate", write=False)
     assert parsed["drafts"][0]["title"] == "Launch parser"
@@ -197,7 +215,7 @@ def test_mcp_stdio_smoke_lists_tools_and_records_decision(tmp_path: Path) -> Non
                 tool_names = {tool.name for tool in tools.tools}
                 resource_uris = {str(resource.uri) for resource in resources.resources}
                 prompt_names = {prompt.name for prompt in prompts.prompts}
-                assert {"record_decision", "get_decision", "audit_decisions"}.issubset(tool_names)
+                assert {"record_decision", "get_decision", "get_history", "audit_decisions"}.issubset(tool_names)
                 assert "decisiontrail://schema" in resource_uris
                 assert "capture_decision_from_rough" in prompt_names
 

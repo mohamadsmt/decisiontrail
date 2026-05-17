@@ -38,11 +38,13 @@ from decisiontrail.review import (
     weekly_review,
 )
 from decisiontrail.storage import (
+    copy_decision_record,
     create_decision,
     ensure_template,
     load_decision,
     load_decisions,
-    write_decision,
+    read_history_events,
+    write_versioned_decision,
 )
 
 
@@ -103,6 +105,7 @@ def init(
                 language="en",
                 direction="auto",
                 tags=["pricing", "growth"],
+                source="cli",
             )
         )
         created.append(
@@ -128,6 +131,7 @@ def init(
                 language="fa",
                 direction="rtl",
                 tags=["pricing", "persian"],
+                source="cli",
             )
         )
 
@@ -179,6 +183,7 @@ def new(
         tags=tag or [],
         parent_id=parent,
         related_decisions=[relation_to_metadata(relation) for relation in related_decisions],
+        source="cli",
     )
     console.print(f"Created [bold]{record.id}[/bold]: {record.path}")
 
@@ -279,6 +284,7 @@ def review(
     """Record an outcome review for a decision."""
     root, config = _load(path)
     record = load_decision(root, config, identifier)
+    previous = copy_decision_record(record)
     review_date = reviewed_on or date.today().isoformat()
     record.metadata["outcome"] = outcome
     record.metadata["reviewed_on"] = review_date
@@ -293,7 +299,7 @@ def review(
     if "## Outcome Review" not in record.body:
         record.body = record.body.rstrip() + "\n\n## Outcome Review\n\n"
     record.body = record.body.rstrip() + f"\n\nReviewed on {review_date}: {outcome}\n"
-    write_decision(record)
+    write_versioned_decision(root, config, previous, record, source="cli", action="reviewed")
     console.print(f"Reviewed [bold]{record.id}[/bold].")
 
 
@@ -318,12 +324,13 @@ def relate(
         raise typer.BadParameter("A decision cannot relate to itself.")
     if relation_type not in VALID_RELATION_TYPES:
         raise typer.BadParameter(f"Relation type must be one of: {', '.join(sorted(VALID_RELATION_TYPES))}.")
+    previous = copy_decision_record(source)
     append_relation(source, relation)
     issues = validate_record(source, records=temp_records)
     relation_issues = [issue for issue in issues if "related_decisions" in issue or "relation type" in issue]
     if relation_issues:
         raise typer.BadParameter("; ".join(relation_issues))
-    write_decision(source)
+    write_versioned_decision(root, config, previous, source, source="cli", action="relation_added")
     console.print(f"Related [bold]{source.id}[/bold] {relation_type_label(relation.relation_type)} [bold]{target.id}[/bold].")
 
 
@@ -366,6 +373,38 @@ def links(
             for relation in backlinks(records, record.id)
         ],
     )
+
+
+@app.command()
+def history(
+    identifier: str,
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Project path."),
+) -> None:
+    """Show version history for a decision."""
+    root, config = _load(path)
+    record = load_decision(root, config, identifier)
+    events = read_history_events(root, config, record.id)
+    if not events:
+        console.print(f"No version history found for [bold]{record.id}[/bold].")
+        return
+
+    table = Table(title=f"Version history for {record.id}")
+    table.add_column("Version", no_wrap=True)
+    table.add_column("Action", no_wrap=True)
+    table.add_column("Changed at", no_wrap=True)
+    table.add_column("Source", no_wrap=True)
+    table.add_column("Changed fields")
+    table.add_column("Snapshot")
+    for event in events:
+        table.add_row(
+            f"v{event.get('version')}",
+            str(event.get("action", "")),
+            str(event.get("changed_at", "")),
+            str(event.get("source", "")),
+            ", ".join(str(field) for field in event.get("changed_fields", [])) or "-",
+            str(event.get("snapshot", "")),
+        )
+    console.print(table)
 
 
 @app.command()
@@ -446,6 +485,7 @@ def parse_meeting(
                 options=draft.options,
                 assumptions=draft.assumptions,
                 success_metrics=draft.success_metrics,
+                source="cli",
             )
             console.print(f"Created [bold]{record.id}[/bold]: {record.path}")
 

@@ -38,7 +38,16 @@ from decisiontrail.review import (
     validate_record,
     weekly_review,
 )
-from decisiontrail.storage import create_decision, ensure_template, load_decision, load_decisions, write_decision
+from decisiontrail.storage import (
+    copy_decision_record,
+    create_decision,
+    delete_versioned_decision,
+    ensure_template,
+    load_decision,
+    load_decisions,
+    read_history_events,
+    write_versioned_decision,
+)
 from decisiontrail.web.actions import delete_blockers, remove_relation_at, update_assumption_status
 from decisiontrail.web.forms import VALID_ASSUMPTION_STATUSES, parse_assumptions, split_lines
 
@@ -244,7 +253,7 @@ class DecisionTrailMCPService:
             "Write directly with record_decision, then call audit_decisions and return the "
             "record ID, score, warnings, and follow-up gaps to the user. Preserve existing "
             "record paths on update_decision. Use add_relation for dependencies and review_decision "
-            "when measured outcomes are known."
+            "when measured outcomes are known. Inspect get_history before summarizing prior edits."
         )
 
     def project_status(self) -> dict[str, Any]:
@@ -287,6 +296,14 @@ class DecisionTrailMCPService:
         records = load_decisions(self.root, self.config)
         record = load_decision(self.root, self.config, identifier)
         return self._record_detail(record, records)
+
+    def get_history(self, identifier: str) -> dict[str, Any]:
+        record = load_decision(self.root, self.config, identifier)
+        return {
+            "id": record.id,
+            "current_version": record.version,
+            "history": read_history_events(self.root, self.config, record.id),
+        }
 
     def search_decisions(
         self,
@@ -379,6 +396,7 @@ class DecisionTrailMCPService:
             tags=_normalize_string_list(tags) or [],
             parent_id=parent_id.strip(),
             related_decisions=related,
+            source="mcp",
         )
         return self._write_result("created", record)
 
@@ -407,6 +425,7 @@ class DecisionTrailMCPService:
         config = self.config
         records = load_decisions(self.root, config)
         record = load_decision(self.root, config, identifier)
+        previous = copy_decision_record(record)
         known_ids = {item.id for item in records}
 
         if title is not None:
@@ -462,14 +481,15 @@ class DecisionTrailMCPService:
         issues = relation_errors(record, updated_records)
         if issues:
             raise ValueError("; ".join(issues))
-        write_decision(record)
+        write_versioned_decision(self.root, config, previous, record, source="mcp", action="updated")
         return self._write_result("updated", record)
 
     def update_status(self, identifier: str, status: str) -> dict[str, Any]:
         config = self.config
         record = load_decision(self.root, config, identifier)
+        previous = copy_decision_record(record)
         record.metadata["status"] = _validate_status(status)
-        write_decision(record)
+        write_versioned_decision(self.root, config, previous, record, source="mcp", action="status_updated")
         return self._write_result("updated", record)
 
     def add_relation(
@@ -493,18 +513,20 @@ class DecisionTrailMCPService:
         relation = parse_relation_line(f"{relation_type}: {target_id}" + (f" | {note}" if note.strip() else ""), source_id=record.id)
         if relation is None:
             raise ValueError("Relation could not be parsed.")
+        previous = copy_decision_record(record)
         append_relation(record, relation)
         issues = relation_errors(record, [item for item in records if item.id != record.id] + [record])
         if issues:
             raise ValueError("; ".join(issues))
-        write_decision(record)
+        write_versioned_decision(self.root, config, previous, record, source="mcp", action="relation_added")
         return self._write_result("updated", record)
 
     def remove_relation(self, identifier: str, relation_index: int) -> dict[str, Any]:
         config = self.config
         record = load_decision(self.root, config, identifier)
+        previous = copy_decision_record(record)
         remove_relation_at(record, relation_index)
-        write_decision(record)
+        write_versioned_decision(self.root, config, previous, record, source="mcp", action="relation_removed")
         return self._write_result("updated", record)
 
     def update_assumption(
@@ -520,8 +542,9 @@ class DecisionTrailMCPService:
             _parse_iso_date(reviewed_on, field_name="reviewed_on")
         config = self.config
         record = load_decision(self.root, config, identifier)
+        previous = copy_decision_record(record)
         update_assumption_status(record, assumption_index, status, note=note, reviewed_on=reviewed_on)
-        write_decision(record)
+        write_versioned_decision(self.root, config, previous, record, source="mcp", action="assumption_updated")
         return self._write_result("updated", record)
 
     def review_decision(
@@ -539,6 +562,7 @@ class DecisionTrailMCPService:
         _parse_iso_date(review_date, field_name="reviewed_on")
         config = self.config
         record = load_decision(self.root, config, identifier)
+        previous = copy_decision_record(record)
         record.metadata["outcome"] = outcome
         record.metadata["reviewed_on"] = review_date
         record.metadata["status"] = "reviewed"
@@ -551,7 +575,7 @@ class DecisionTrailMCPService:
         if "## Outcome Review" not in record.body:
             record.body = record.body.rstrip() + "\n\n## Outcome Review\n\n"
         record.body = record.body.rstrip() + f"\n\nReviewed on {review_date}: {outcome}\n"
-        write_decision(record)
+        write_versioned_decision(self.root, config, previous, record, source="mcp", action="reviewed")
         return self._write_result("reviewed", record)
 
     def parse_meeting(
@@ -590,6 +614,7 @@ class DecisionTrailMCPService:
                 success_metrics=draft.success_metrics,
                 language=language,
                 direction=direction,
+                source="mcp",
             )
             created.append(self._record_summary(record))
         return {"drafts": draft_data, "created": created}
@@ -642,8 +667,16 @@ class DecisionTrailMCPService:
                 "errors": errors,
                 "blockers": self._delete_blockers(blockers),
             }
-        record.path.unlink()
-        return {"deleted": True, "id": record.id, "path": str(record.path), "errors": [], "blockers": self._delete_blockers(blockers)}
+        result = delete_versioned_decision(self.root, config, record, source="mcp")
+        return {
+            "deleted": True,
+            "id": record.id,
+            "path": str(record.path),
+            "version": result.version,
+            "event": result.event,
+            "errors": [],
+            "blockers": self._delete_blockers(blockers),
+        }
 
     def _write_result(self, action: str, record: DecisionRecord) -> dict[str, Any]:
         records = load_decisions(self.root, self.config)
@@ -684,6 +717,7 @@ class DecisionTrailMCPService:
             "children": [self._record_summary(child) for child in children_of(records, record.id)],
             "outgoing_relations": [_jsonable(relation) for relation in outgoing_relations(record)],
             "backlinks": [_jsonable(relation) for relation in backlinks(records, record.id)],
+            "history": read_history_events(self.root, self.config, record.id),
         }
 
     def _delete_blockers(self, blockers) -> dict[str, Any]:
@@ -737,7 +771,7 @@ def create_mcp_server(
             "2. Infer title, context, options, selected decision, rationale, assumptions, success metrics, "
             "revisit_on, language, direction, tags, parent_id, and related_decisions.\n"
             "3. Call record_decision directly.\n"
-            "4. Call audit_decisions and report the record ID, score, issues, and follow-up gaps."
+            "4. Call audit_decisions and get_history, then report the record ID, score, issues, version, and follow-up gaps."
         )
 
     @mcp.tool()
@@ -759,6 +793,11 @@ def create_mcp_server(
     def get_decision(identifier: str) -> dict[str, Any]:
         """Read one decision with metadata, body, relationships, score, and validation issues."""
         return active_service.get_decision(identifier)
+
+    @mcp.tool()
+    def get_history(identifier: str) -> dict[str, Any]:
+        """Read version history events for one decision."""
+        return active_service.get_history(identifier)
 
     @mcp.tool()
     def search_decisions(

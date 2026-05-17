@@ -16,6 +16,7 @@ class DecisionTrailConfig:
     decisions_dir: str = "decisions"
     templates_dir: str = "templates"
     export_dir: str = "site"
+    history_dir: str = ".decisiontrail/history"
     score_threshold: int = 70
     warn_only: bool = True
     overdue_policy: str = "warn"
@@ -27,6 +28,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "decisions_dir": "decisions",
     "templates_dir": "templates",
     "export_dir": "site",
+    "history_dir": ".decisiontrail/history",
     "score_threshold": 70,
     "warn_only": True,
     "overdue_policy": "warn",
@@ -57,6 +59,7 @@ def load_config(root: Path) -> DecisionTrailConfig:
         decisions_dir=str(merged["decisions_dir"]),
         templates_dir=str(merged["templates_dir"]),
         export_dir=str(merged["export_dir"]),
+        history_dir=str(merged["history_dir"]),
         score_threshold=int(merged["score_threshold"]),
         warn_only=bool(merged["warn_only"]),
         overdue_policy=str(merged["overdue_policy"]),

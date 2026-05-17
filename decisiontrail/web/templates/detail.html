@@ -1,9 +1,13 @@
 {% extends "base.html" %}
 {% block title %}{{ record.id }}{% endblock %}
 {% block content %}
-<section class="page-title">
+<section class="page-title decision-title">
   <div dir="auto">
-    <p class="meta-line">{{ record.id }} · <span class="status-pill">{{ record.status }}</span> · {{ record.language }} / {{ record.direction }}</p>
+    <p class="meta-line">
+      {{ record.id }} · <span class="status-pill">{{ record.status }}</span>
+      · v{{ record.version }}
+      {% if record.updated_at %} · Updated {{ record.updated_at }}{% endif %}
+    </p>
     <h1>{{ record.title }}</h1>
   </div>
   <div class="page-actions">
@@ -13,28 +17,11 @@
   </div>
 </section>
 
-<section class="metric-strip" aria-label="Decision detail summary">
-  <article><span>{{ score.score }}</span><strong>Score</strong></article>
-  <article><span>{{ record.owner or "-" }}</span><strong>Owner</strong></article>
-  <article><span>{{ record.revisit_on or "-" }}</span><strong>Revisit</strong></article>
-</section>
-
 {% if record_tags %}
 <section class="tag-strip" aria-label="Decision tags">
   {% for tag in record_tags %}
   <a class="tag-pill" href="/?tag={{ tag|urlencode }}" dir="auto">{{ tag }}</a>
   {% endfor %}
-</section>
-{% endif %}
-
-{% if issues %}
-<section class="alert" role="status">
-  <strong>Audit warnings</strong>
-  <ul>
-    {% for issue in issues %}
-    <li>{{ issue }}</li>
-    {% endfor %}
-  </ul>
 </section>
 {% endif %}
 
@@ -49,124 +36,154 @@
 </section>
 {% endif %}
 
-<section class="grid-two">
-  <article class="panel" id="relationships">
-    <h2>Hierarchy</h2>
-    <dl class="stacked">
-      <div>
-        <dt>Parent</dt>
-        <dd>
-          {% if parent %}
-          <a href="/decisions/{{ parent.id }}">{{ parent.id }}</a> <span dir="auto">{{ parent.title }}</span>
-          {% else %}
-          -
-          {% endif %}
-        </dd>
-      </div>
-      <div>
-        <dt>Children</dt>
-        <dd>
-          <ul class="compact-list">
-            {% for child in children %}
-            <li><a href="/decisions/{{ child.id }}">{{ child.id }}</a><span dir="auto">{{ child.title }}</span></li>
-            {% else %}
-            <li>No child decisions.</li>
-            {% endfor %}
-          </ul>
-        </dd>
-      </div>
-    </dl>
-  </article>
-  <article class="panel">
-    <h2>Typed links</h2>
-    <dl class="stacked">
-      <div>
-        <dt>Outgoing</dt>
-        <dd>
-          <ul class="compact-list">
-            {% for relation in outgoing_relations %}
-            {% set target = records_by_id.get(relation.target_id) %}
-            <li>
-              <strong>{{ relation.relation_type|replace("_", " ") }}</strong>
-              {% if target %}
-              <a href="/decisions/{{ target.id }}">{{ target.id }}</a><span dir="auto">{{ target.title }}</span>
-              {% else %}
-              <span>{{ relation.target_id }}</span>
-              {% endif %}
-              {% if relation.note %}<small dir="auto">{{ relation.note }}</small>{% endif %}
-              <form class="inline-form" method="post" action="/decisions/{{ record.id }}/relations/remove">
-                <input type="hidden" name="relation_index" value="{{ loop.index0 }}">
-                <button class="button-secondary" type="submit">Remove</button>
-              </form>
-            </li>
-            {% else %}
-            <li>No outgoing links.</li>
-            {% endfor %}
-          </ul>
-        </dd>
-      </div>
-      <div>
-        <dt>Linked from</dt>
-        <dd>
-          <ul class="compact-list">
-            {% for relation in backlinks %}
-            {% set source = records_by_id.get(relation.source_id) %}
-            <li>
-              <strong>{{ relation.relation_type|replace("_", " ") }}</strong>
-              {% if source %}
-              <a href="/decisions/{{ source.id }}">{{ source.id }}</a><span dir="auto">{{ source.title }}</span>
-              {% else %}
-              <span>{{ relation.source_id }}</span>
-              {% endif %}
-              {% if relation.note %}<small dir="auto">{{ relation.note }}</small>{% endif %}
-            </li>
-            {% else %}
-            <li>No backlinks.</li>
-            {% endfor %}
-          </ul>
-        </dd>
-      </div>
-    </dl>
-    <form class="compact-form" method="post" action="/decisions/{{ record.id }}/relations">
-      <h3>Add related decision</h3>
-      <div class="field">
-        <label for="relation_type">Type</label>
-        <select id="relation_type" name="relation_type">
-          {% for relation_type in valid_relation_types %}
-          <option value="{{ relation_type }}">{{ relation_type }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="field">
-        <label for="target_id">Target decision</label>
-        <select id="target_id" name="target_id">
-          {% for item in records %}
-          {% if item.id != record.id %}
-          <option value="{{ item.id }}">{{ item.id }} · {{ item.title }}</option>
-          {% endif %}
-          {% endfor %}
-        </select>
-      </div>
-      <div class="field">
-        <label for="relation_note">Note</label>
-        <input id="relation_note" name="note" dir="auto">
-      </div>
-      <button class="button-secondary" type="submit">Add relation</button>
-    </form>
+<section class="reader-panel">
+  <div class="reader-meta" aria-label="Decision metadata">
+    <span>Owner: {{ record.owner or "-" }}</span>
+    <span>Date: {{ record.decision_date or "-" }}</span>
+    <span>Revisit: {{ record.revisit_on or "-" }}</span>
+    <span>{{ record.language }} / {{ record.direction }}</span>
+  </div>
+  <article class="markdown-body markdown-reader" lang="{{ record.language }}" dir="{{ record.direction }}">
+    {{ body_html|safe }}
   </article>
 </section>
 
-<section class="grid-two">
-  <article class="panel">
-    <h2>Scorecard</h2>
+<section class="detail-accordions" aria-label="Decision operations">
+  <details class="panel">
+    <summary>Scorecard</summary>
     <dl class="stacked">
+      <div><dt>Score</dt><dd>{{ score.score }}</dd></div>
       <div><dt>Passed</dt><dd>{{ score.passed|join(", ") or "-" }}</dd></div>
       <div><dt>Missing</dt><dd>{{ score.missing|join(", ") or "-" }}</dd></div>
       <div><dt>Warnings</dt><dd>{{ score.warnings|join(", ") or "-" }}</dd></div>
     </dl>
-  </article>
-  <article class="panel" id="assumptions">
-    <h2>Assumptions</h2>
+  </details>
+
+  <details class="panel">
+    <summary>Audit warnings</summary>
+    {% if issues %}
+    <ul class="compact-list">
+      {% for issue in issues %}
+      <li>{{ issue }}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="help-text">No structural warnings.</p>
+    {% endif %}
+  </details>
+
+  <details class="panel" id="relationships">
+    <summary>Relationships</summary>
+    <section class="grid-two nested-grid">
+      <article>
+        <h2>Hierarchy</h2>
+        <dl class="stacked">
+          <div>
+            <dt>Parent</dt>
+            <dd>
+              {% if parent %}
+              <a href="/decisions/{{ parent.id }}">{{ parent.id }}</a> <span dir="auto">{{ parent.title }}</span>
+              {% else %}
+              -
+              {% endif %}
+            </dd>
+          </div>
+          <div>
+            <dt>Children</dt>
+            <dd>
+              <ul class="compact-list">
+                {% for child in children %}
+                <li><a href="/decisions/{{ child.id }}">{{ child.id }}</a><span dir="auto">{{ child.title }}</span></li>
+                {% else %}
+                <li>No child decisions.</li>
+                {% endfor %}
+              </ul>
+            </dd>
+          </div>
+        </dl>
+      </article>
+      <article>
+        <h2>Typed links</h2>
+        <dl class="stacked">
+          <div>
+            <dt>Outgoing</dt>
+            <dd>
+              <ul class="compact-list">
+                {% for relation in outgoing_relations %}
+                {% set target = records_by_id.get(relation.target_id) %}
+                <li>
+                  <strong>{{ relation.relation_type|replace("_", " ") }}</strong>
+                  {% if target %}
+                  <a href="/decisions/{{ target.id }}">{{ target.id }}</a><span dir="auto">{{ target.title }}</span>
+                  {% else %}
+                  <span>{{ relation.target_id }}</span>
+                  {% endif %}
+                  {% if relation.note %}<small dir="auto">{{ relation.note }}</small>{% endif %}
+                  <form class="inline-form" method="post" action="/decisions/{{ record.id }}/relations/remove">
+                    <input type="hidden" name="relation_index" value="{{ loop.index0 }}">
+                    <button class="button-secondary" type="submit">Remove</button>
+                  </form>
+                </li>
+                {% else %}
+                <li>No outgoing links.</li>
+                {% endfor %}
+              </ul>
+            </dd>
+          </div>
+          <div>
+            <dt>Linked from</dt>
+            <dd>
+              <ul class="compact-list">
+                {% for relation in backlinks %}
+                {% set source = records_by_id.get(relation.source_id) %}
+                <li>
+                  <strong>{{ relation.relation_type|replace("_", " ") }}</strong>
+                  {% if source %}
+                  <a href="/decisions/{{ source.id }}">{{ source.id }}</a><span dir="auto">{{ source.title }}</span>
+                  {% else %}
+                  <span>{{ relation.source_id }}</span>
+                  {% endif %}
+                  {% if relation.note %}<small dir="auto">{{ relation.note }}</small>{% endif %}
+                </li>
+                {% else %}
+                <li>No backlinks.</li>
+                {% endfor %}
+              </ul>
+            </dd>
+          </div>
+        </dl>
+        <form class="compact-form" method="post" action="/decisions/{{ record.id }}/relations">
+          <h3>Add related decision</h3>
+          <div class="field">
+            <label for="relation_type">Type</label>
+            <select id="relation_type" name="relation_type">
+              {% for relation_type in valid_relation_types %}
+              <option value="{{ relation_type }}">{{ relation_type }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="target_id">Target decision</label>
+            <select id="target_id" name="target_id">
+              {% for item in records %}
+              {% if item.id != record.id %}
+              <option value="{{ item.id }}">{{ item.id }} · {{ item.title }}</option>
+              {% endif %}
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="relation_note">Note</label>
+            <input id="relation_note" name="note" dir="auto">
+          </div>
+          <button class="button-secondary" type="submit">Add relation</button>
+        </form>
+      </article>
+    </section>
+  </details>
+
+  <details class="panel" id="assumptions">
+    <summary>Assumptions</summary>
     <ul class="compact-list">
       {% for item in assumption_details %}
       <li>
@@ -192,80 +209,89 @@
       <li>No assumptions recorded.</li>
       {% endfor %}
     </ul>
-  </article>
-</section>
+  </details>
 
-<section class="panel">
-  <h2>Quick status</h2>
-  <form class="compact-form" method="post" action="/decisions/{{ record.id }}/status">
-    <div class="field">
-      <label for="quick_status">Status</label>
-      <select id="quick_status" name="status">
-        {% for status in valid_statuses %}
-        <option value="{{ status }}" {% if record.status == status %}selected{% endif %}>{{ status }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <button class="button-secondary" type="submit">Update status</button>
-  </form>
-</section>
+  <details class="panel">
+    <summary>Quick status</summary>
+    <form class="compact-form" method="post" action="/decisions/{{ record.id }}/status">
+      <div class="field">
+        <label for="quick_status">Status</label>
+        <select id="quick_status" name="status">
+          {% for status in valid_statuses %}
+          <option value="{{ status }}" {% if record.status == status %}selected{% endif %}>{{ status }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button class="button-secondary" type="submit">Update status</button>
+    </form>
+  </details>
 
-<section class="panel">
-  <h2>Outcome review</h2>
-  <form class="review-form" method="post" action="/decisions/{{ record.id }}/review">
-    <div class="field wide">
-      <label for="outcome">Outcome</label>
-      <textarea id="outcome" name="outcome" rows="4" dir="auto" required>{{ record.outcome or "" }}</textarea>
-    </div>
-    <div class="field">
-      <label for="reviewed_on">Reviewed on</label>
-      <input id="reviewed_on" name="reviewed_on" type="date" value="{{ record.reviewed_on or today }}" dir="ltr">
-    </div>
-    <div class="field wide">
-      <label for="metric_note">Metric note</label>
-      <textarea id="metric_note" name="metric_note" rows="3" dir="auto"></textarea>
-    </div>
-    <button class="button" type="submit">Save review</button>
-  </form>
-</section>
+  <details class="panel">
+    <summary>Outcome review</summary>
+    <form class="review-form" method="post" action="/decisions/{{ record.id }}/review">
+      <div class="field wide">
+        <label for="outcome">Outcome</label>
+        <textarea id="outcome" name="outcome" rows="4" dir="auto" required>{{ record.outcome or "" }}</textarea>
+      </div>
+      <div class="field">
+        <label for="reviewed_on">Reviewed on</label>
+        <input id="reviewed_on" name="reviewed_on" type="date" value="{{ record.reviewed_on or today }}" dir="ltr">
+      </div>
+      <div class="field wide">
+        <label for="metric_note">Metric note</label>
+        <textarea id="metric_note" name="metric_note" rows="3" dir="auto"></textarea>
+      </div>
+      <button class="button" type="submit">Save review</button>
+    </form>
+  </details>
 
-<section class="panel">
-  <h2>Record preview</h2>
-  <article class="markdown-body" lang="{{ record.language }}" dir="{{ record.direction }}">
-    {{ body_html|safe }}
-  </article>
-</section>
+  <details class="panel">
+    <summary>Version history</summary>
+    <ul class="compact-list history-list">
+      {% for event in history_events %}
+      <li>
+        <strong>v{{ event.version }} · {{ event.action|replace("_", " ") }}</strong>
+        <span>{{ event.changed_at }} · {{ event.source }}</span>
+        <small>Changed: {{ event.changed_fields|join(", ") or "-" }}</small>
+        <a href="/decisions/{{ record.id }}/history/{{ event.version }}">View snapshot</a>
+      </li>
+      {% else %}
+      <li>No version history has been recorded yet.</li>
+      {% endfor %}
+    </ul>
+  </details>
 
-<section class="panel danger-zone">
-  <h2>Danger zone</h2>
-  {% if delete_blockers.has_blockers %}
-  <p class="help-text">Delete is blocked until child decisions and incoming backlinks are removed.</p>
-  {% if delete_blockers.children %}
-  <ul class="compact-list">
-    {% for child in delete_blockers.children %}
-    <li><a href="/decisions/{{ child.id }}">{{ child.id }}</a><span dir="auto">{{ child.title }}</span></li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-  {% if delete_blockers.incoming_links %}
-  <ul class="compact-list">
-    {% for relation in delete_blockers.incoming_links %}
-    {% set source = records_by_id.get(relation.source_id) %}
-    <li>
-      <strong>{{ relation.relation_type|replace("_", " ") }}</strong>
-      {% if source %}<a href="/decisions/{{ source.id }}">{{ source.id }}</a><span dir="auto">{{ source.title }}</span>{% endif %}
-    </li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-  {% else %}
-  <form class="compact-form" method="post" action="/decisions/{{ record.id }}/delete">
-    <div class="field">
-      <label for="confirm_id">Type {{ record.id }} to delete</label>
-      <input id="confirm_id" name="confirm_id" dir="ltr">
-    </div>
-    <button class="button-danger" type="submit">Delete decision</button>
-  </form>
-  {% endif %}
+  <details class="panel danger-zone">
+    <summary>Danger zone</summary>
+    {% if delete_blockers.has_blockers %}
+    <p class="help-text">Delete is blocked until child decisions and incoming backlinks are removed.</p>
+    {% if delete_blockers.children %}
+    <ul class="compact-list">
+      {% for child in delete_blockers.children %}
+      <li><a href="/decisions/{{ child.id }}">{{ child.id }}</a><span dir="auto">{{ child.title }}</span></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if delete_blockers.incoming_links %}
+    <ul class="compact-list">
+      {% for relation in delete_blockers.incoming_links %}
+      {% set source = records_by_id.get(relation.source_id) %}
+      <li>
+        <strong>{{ relation.relation_type|replace("_", " ") }}</strong>
+        {% if source %}<a href="/decisions/{{ source.id }}">{{ source.id }}</a><span dir="auto">{{ source.title }}</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% else %}
+    <form class="compact-form" method="post" action="/decisions/{{ record.id }}/delete">
+      <div class="field">
+        <label for="confirm_id">Type {{ record.id }} to delete</label>
+        <input id="confirm_id" name="confirm_id" dir="ltr">
+      </div>
+      <button class="button-danger" type="submit">Delete decision</button>
+    </form>
+    {% endif %}
+  </details>
 </section>
 {% endblock %}

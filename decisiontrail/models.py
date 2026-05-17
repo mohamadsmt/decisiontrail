@@ -113,6 +113,23 @@ class DecisionRecord:
         return str(self.metadata.get("direction", "auto")).strip() or "auto"
 
     @property
+    def version(self) -> int:
+        value = self.metadata.get("version", 1)
+        try:
+            version = int(value)
+        except (TypeError, ValueError):
+            return 1
+        return max(version, 1)
+
+    @property
+    def created_at(self) -> str:
+        return str(self.metadata.get("created_at", "") or "").strip()
+
+    @property
+    def updated_at(self) -> str:
+        return str(self.metadata.get("updated_at", "") or "").strip()
+
+    @property
     def decision_date(self) -> date | None:
         return as_date(self.metadata.get("date"))
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
@@ -38,7 +39,17 @@ from decisiontrail.review import (
     validate_record,
     weekly_review,
 )
-from decisiontrail.storage import create_decision, ensure_template, load_decision, load_decisions, write_decision
+from decisiontrail.storage import (
+    copy_decision_record,
+    create_decision,
+    delete_versioned_decision,
+    ensure_template,
+    load_decision,
+    load_decisions,
+    load_history_snapshot,
+    read_history_events,
+    write_versioned_decision,
+)
 from decisiontrail.web.actions import delete_blockers, normalize_assumption, remove_relation_at, update_assumption_status
 from decisiontrail.web.forms import (
     VALID_ASSUMPTION_STATUSES,
@@ -66,10 +77,20 @@ def create_web_app(root: Path) -> FastAPI:
         status: Annotated[str | None, Query()] = None,
         owner: Annotated[str | None, Query()] = None,
         tag: Annotated[str | None, Query()] = None,
+        page: Annotated[int, Query(ge=1)] = 1,
+        per_page: Annotated[int, Query(ge=1, le=100)] = 10,
     ) -> HTMLResponse:
         config = load_config(root)
         records = load_decisions(root, config)
         filtered = filter_records(records, status=status, owner=owner, tag=tag)
+        page_records, pagination = paginate_records(
+            filtered,
+            page=page,
+            per_page=per_page,
+            status=status or "",
+            owner=owner or "",
+            tag=tag or "",
+        )
         report = weekly_review(records)
         scores = [score_decision(record) for record in records]
         low_scores = [score for score in scores if score.score < config.score_threshold]
@@ -80,7 +101,9 @@ def create_web_app(root: Path) -> FastAPI:
                 "root": root,
                 "config": config,
                 "records": records,
-                "filtered_records": filtered,
+                "filtered_records": page_records,
+                "filtered_count": len(filtered),
+                "pagination": pagination,
                 "report": report,
                 "scores": {score.decision_id: score for score in scores},
                 "low_scores": low_scores,
@@ -89,6 +112,7 @@ def create_web_app(root: Path) -> FastAPI:
                 "tag_filter": tag or "",
                 "tag_options": collect_tags(records),
                 "tag_labels": tag_labels,
+                "per_page_options": [10, 25, 50],
                 "valid_statuses": sorted(VALID_STATUSES),
             },
         )
@@ -185,6 +209,7 @@ def create_web_app(root: Path) -> FastAPI:
                             options=draft.options,
                             assumptions=draft.assumptions,
                             success_metrics=draft.success_metrics,
+                            source="web",
                         )
                     )
         return render_meeting_parser(request, root, meeting_text, drafts, errors, created)
@@ -237,7 +262,7 @@ def create_web_app(root: Path) -> FastAPI:
             return render_form(request, root, data, errors, status_code=422)
 
         ensure_template(root, config)
-        record = create_decision(root, config, data.title.strip(), **form_to_create_kwargs(data))
+        record = create_decision(root, config, data.title.strip(), **form_to_create_kwargs(data), source="web")
         return RedirectResponse(url=f"/decisions/{record.id}", status_code=303)
 
     @app.get("/decisions/{identifier}/edit", response_class=HTMLResponse)
@@ -297,14 +322,37 @@ def create_web_app(root: Path) -> FastAPI:
         if errors:
             return render_edit_form(request, root, record, data, errors, status_code=422)
 
+        previous = copy_decision_record(record)
         record.metadata.update(updates)
         record.body = body
-        write_decision(record)
+        write_versioned_decision(root, config, previous, record, source="web", action="edited")
         return RedirectResponse(url=f"/decisions/{record.id}", status_code=303)
 
     @app.get("/decisions/{identifier}", response_class=HTMLResponse)
     def decision_detail(request: Request, identifier: str) -> HTMLResponse:
         return render_detail(request, root, identifier)
+
+    @app.get("/decisions/{identifier}/history/{version}", response_class=HTMLResponse)
+    def decision_history_snapshot(request: Request, identifier: str, version: int) -> HTMLResponse:
+        config = load_config(root)
+        current = load_decision(root, config, identifier)
+        try:
+            snapshot = load_history_snapshot(root, config, current.id, version)
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        events = read_history_events(root, config, current.id)
+        event = next((item for item in events if item.get("version") == version), None)
+        return templates.TemplateResponse(
+            request,
+            "history_snapshot.html",
+            {
+                "root": root,
+                "current": current,
+                "snapshot": snapshot,
+                "event": event,
+                "body_html": markdown(snapshot.body, extensions=["fenced_code", "tables"]),
+            },
+        )
 
     @app.post("/decisions/{identifier}/status")
     def update_status_from_form(
@@ -316,8 +364,9 @@ def create_web_app(root: Path) -> FastAPI:
         record = load_decision(root, config, identifier)
         if status not in VALID_STATUSES:
             return render_detail(request, root, identifier, [f"Status must be one of: {', '.join(sorted(VALID_STATUSES))}."], 422)
+        previous = copy_decision_record(record)
         record.metadata["status"] = status
-        write_decision(record)
+        write_versioned_decision(root, config, previous, record, source="web", action="status_updated")
         return RedirectResponse(url=f"/decisions/{record.id}", status_code=303)
 
     @app.post("/decisions/{identifier}/assumptions/{index}")
@@ -330,11 +379,12 @@ def create_web_app(root: Path) -> FastAPI:
     ) -> Response:
         config = load_config(root)
         record = load_decision(root, config, identifier)
+        previous = copy_decision_record(record)
         try:
             update_assumption_status(record, index, status, note=note)
         except (IndexError, ValueError) as error:
             return render_detail(request, root, identifier, [str(error)], 422)
-        write_decision(record)
+        write_versioned_decision(root, config, previous, record, source="web", action="assumption_updated")
         return RedirectResponse(url=f"/decisions/{record.id}#assumptions", status_code=303)
 
     @app.post("/decisions/{identifier}/relations")
@@ -361,11 +411,12 @@ def create_web_app(root: Path) -> FastAPI:
             errors.append("Relation could not be parsed.")
         if errors:
             return render_detail(request, root, identifier, errors, 422)
+        previous = copy_decision_record(record)
         append_relation(record, relation)
         relation_issues = relation_errors(record, [item for item in records if item.id != record.id] + [record])
         if relation_issues:
             return render_detail(request, root, identifier, relation_issues, 422)
-        write_decision(record)
+        write_versioned_decision(root, config, previous, record, source="web", action="relation_added")
         return RedirectResponse(url=f"/decisions/{record.id}#relationships", status_code=303)
 
     @app.post("/decisions/{identifier}/relations/remove")
@@ -376,11 +427,12 @@ def create_web_app(root: Path) -> FastAPI:
     ) -> Response:
         config = load_config(root)
         record = load_decision(root, config, identifier)
+        previous = copy_decision_record(record)
         try:
             remove_relation_at(record, relation_index)
         except IndexError as error:
             return render_detail(request, root, identifier, [str(error)], 422)
-        write_decision(record)
+        write_versioned_decision(root, config, previous, record, source="web", action="relation_removed")
         return RedirectResponse(url=f"/decisions/{record.id}#relationships", status_code=303)
 
     @app.post("/decisions/{identifier}/review")
@@ -398,6 +450,7 @@ def create_web_app(root: Path) -> FastAPI:
             date.fromisoformat(review_date)
         except ValueError:
             return render_detail(request, root, identifier, ["Review date must use ISO format: YYYY-MM-DD."], 422)
+        previous = copy_decision_record(record)
         record.metadata["outcome"] = outcome.strip()
         record.metadata["reviewed_on"] = review_date
         record.metadata["status"] = "reviewed"
@@ -410,7 +463,7 @@ def create_web_app(root: Path) -> FastAPI:
         if "## Outcome Review" not in record.body:
             record.body = record.body.rstrip() + "\n\n## Outcome Review\n\n"
         record.body = record.body.rstrip() + f"\n\nReviewed on {review_date}: {outcome.strip()}\n"
-        write_decision(record)
+        write_versioned_decision(root, config, previous, record, source="web", action="reviewed")
         return RedirectResponse(url=f"/decisions/{record.id}", status_code=303)
 
     @app.post("/decisions/{identifier}/delete")
@@ -432,7 +485,7 @@ def create_web_app(root: Path) -> FastAPI:
             errors.append("Delete blocked: this decision has incoming backlinks.")
         if errors:
             return render_detail(request, root, identifier, errors, 422)
-        record.path.unlink()
+        delete_versioned_decision(root, config, record, source="web")
         return RedirectResponse(url="/", status_code=303)
 
     return app
@@ -446,6 +499,63 @@ def filter_records(records, *, status: str | None, owner: str | None, tag: str |
         filtered = [record for record in filtered if record.owner.lower() == owner.lower()]
     filtered = filter_records_by_tag(filtered, tag)
     return filtered
+
+
+def paginate_records(
+    records: list[DecisionRecord],
+    *,
+    page: int,
+    per_page: int,
+    status: str,
+    owner: str,
+    tag: str,
+) -> tuple[list[DecisionRecord], dict[str, int | str | bool | None]]:
+    total = len(records)
+    safe_per_page = max(1, min(per_page, 100))
+    total_pages = max(1, (total + safe_per_page - 1) // safe_per_page)
+    current_page = min(max(page, 1), total_pages)
+    start = (current_page - 1) * safe_per_page
+    end = start + safe_per_page
+    visible = records[start:end]
+    return visible, {
+        "page": current_page,
+        "per_page": safe_per_page,
+        "total": total,
+        "total_pages": total_pages,
+        "start": start + 1 if total else 0,
+        "end": min(end, total),
+        "has_previous": current_page > 1,
+        "has_next": current_page < total_pages,
+        "previous_url": dashboard_page_url(
+            page=current_page - 1,
+            per_page=safe_per_page,
+            status=status,
+            owner=owner,
+            tag=tag,
+        )
+        if current_page > 1
+        else None,
+        "next_url": dashboard_page_url(
+            page=current_page + 1,
+            per_page=safe_per_page,
+            status=status,
+            owner=owner,
+            tag=tag,
+        )
+        if current_page < total_pages
+        else None,
+    }
+
+
+def dashboard_page_url(*, page: int, per_page: int, status: str, owner: str, tag: str) -> str:
+    params: dict[str, str | int] = {"page": page, "per_page": per_page}
+    if status:
+        params["status"] = status
+    if owner:
+        params["owner"] = owner
+    if tag:
+        params["tag"] = tag
+    return f"/?{urlencode(params)}"
 
 
 def render_form(
@@ -511,6 +621,7 @@ def render_detail(
     score = score_decision(record)
     assumptions = assumption_items([record])
     body_html = markdown(record.body, extensions=["fenced_code", "tables"])
+    history_events = read_history_events(root, config, record.id)
     return templates.TemplateResponse(
         request,
         "detail.html",
@@ -529,6 +640,7 @@ def render_detail(
             "assumption_details": [normalize_assumption(item) for item in record.assumptions],
             "record_tags": tag_labels(record),
             "body_html": body_html,
+            "history_events": list(reversed(history_events)),
             "issues": validate_record(record, records=records),
             "action_errors": action_errors or [],
             "today": date.today().isoformat(),

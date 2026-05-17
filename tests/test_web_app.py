@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from decisiontrail.config import load_config
-from decisiontrail.storage import create_decision, load_decision, load_decisions
+from decisiontrail.storage import create_decision, load_decision, load_decisions, read_history_events
 from decisiontrail.web.app import create_web_app
 
 
@@ -27,6 +27,7 @@ def test_dashboard_renders_existing_records_and_summaries(tmp_path: Path) -> Non
     assert "Decision dashboard" in response.text
     assert "Launch pricing" in response.text
     assert "Unvalidated assumptions" in response.text
+    assert "<th>Language</th>" not in response.text
 
 
 def test_ui_creates_english_decision(tmp_path: Path) -> None:
@@ -137,13 +138,17 @@ def test_ui_review_updates_markdown_record(tmp_path: Path) -> None:
     assert response.status_code == 303
     updated = load_decision(tmp_path, load_config(tmp_path), record.id)
     assert updated.status == "reviewed"
+    assert updated.version == 2
     assert updated.outcome == "Gross margin improved."
     assert updated.metadata["metric_notes"] == [{"reviewed_on": "2026-08-15", "note": "Retention stayed flat."}]
     assert "Reviewed on 2026-08-15: Gross margin improved." in updated.body
+    assert read_history_events(tmp_path, load_config(tmp_path), record.id)[-1]["action"] == "reviewed"
 
     detail_response = client.get(f"/decisions/{record.id}")
     assert detail_response.status_code == 200
     assert 'id="reviewed_on" name="reviewed_on" type="date" value="2026-08-15" dir="ltr"' in detail_response.text
+    assert "Version history" in detail_response.text
+    assert detail_response.text.index("Gross margin improved.") < detail_response.text.index("Scorecard")
 
 
 def test_ui_review_rejects_invalid_review_date_without_updating_record(tmp_path: Path) -> None:
@@ -180,6 +185,43 @@ def test_dashboard_filters_by_status_and_owner(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert "Product decision" in response.text
     assert "CEO decision" not in response.text
+
+
+def test_dashboard_parent_cell_links_to_parent_decision(tmp_path: Path) -> None:
+    config = load_config(tmp_path)
+    parent = create_decision(tmp_path, config, "Parent decision")
+    create_decision(tmp_path, config, "Child decision", parent_id=parent.id)
+    client = TestClient(create_web_app(tmp_path))
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert f'<a href="/decisions/{parent.id}">{parent.id}</a>' in response.text
+
+
+def test_dashboard_paginates_records_and_preserves_filter_query(tmp_path: Path) -> None:
+    config = load_config(tmp_path)
+    for index in range(12):
+        create_decision(
+            tmp_path,
+            config,
+            f"Paged decision {index + 1:02d}",
+            owner="Product",
+            status="accepted",
+            tags=["Paged"],
+        )
+    client = TestClient(create_web_app(tmp_path))
+
+    response = client.get("/", params={"page": "2", "per_page": "5", "status": "accepted", "tag": "Paged"})
+
+    assert response.status_code == 200
+    assert "Showing 6-10 of 12 matching records" in response.text
+    assert "Page 2 of 3" in response.text
+    assert "Paged decision 06" in response.text
+    assert "Paged decision 01" not in response.text
+    assert "/?page=1&amp;per_page=5&amp;status=accepted&amp;tag=Paged" in response.text
+    assert "/?page=3&amp;per_page=5&amp;status=accepted&amp;tag=Paged" in response.text
+    assert "<th>Language</th>" not in response.text
 
 
 def test_dashboard_filters_by_tag_with_exact_case_insensitive_match(tmp_path: Path) -> None:
@@ -304,6 +346,7 @@ def test_ui_edit_updates_record_without_renaming_file(tmp_path: Path) -> None:
     assert response.status_code == 303
     updated = load_decision(tmp_path, load_config(tmp_path), record.id)
     assert updated.path == original_path
+    assert updated.version == 2
     assert updated.title == "Updated title"
     assert updated.owner == "Product"
     assert updated.status == "accepted"
@@ -311,6 +354,26 @@ def test_ui_edit_updates_record_without_renaming_file(tmp_path: Path) -> None:
         {"text": "کاربران تغییر را می‌پذیرند.", "status": "validated", "note": "Checked"}
     ]
     assert updated.body == "# Updated title\n\nManual body stays."
+    assert read_history_events(tmp_path, load_config(tmp_path), record.id)[-1]["changed_fields"] == [
+        "assumptions",
+        "context",
+        "decision",
+        "direction",
+        "language",
+        "options",
+        "owner",
+        "rationale",
+        "status",
+        "success_metrics",
+        "tags",
+        "title",
+        "body",
+    ]
+
+    snapshot_response = client.get(f"/decisions/{record.id}/history/1")
+    assert snapshot_response.status_code == 200
+    assert "Snapshot v1" in snapshot_response.text
+    assert "Original title" in snapshot_response.text
 
 
 def test_ui_quick_status_and_assumption_verification(tmp_path: Path) -> None:
@@ -333,9 +396,15 @@ def test_ui_quick_status_and_assumption_verification(tmp_path: Path) -> None:
     assert status_response.status_code == 303
     assert assumption_response.status_code == 303
     assert updated.status == "accepted"
+    assert updated.version == 3
     assert updated.assumptions[0]["status"] == "validated"
     assert updated.assumptions[0]["note"] == "Interviewed 5 merchants"
     assert updated.assumptions[0]["reviewed_on"]
+    assert [event["action"] for event in read_history_events(tmp_path, load_config(tmp_path), record.id)] == [
+        "created",
+        "status_updated",
+        "assumption_updated",
+    ]
 
 
 def test_ui_adds_and_removes_outgoing_relation(tmp_path: Path) -> None:
@@ -350,7 +419,9 @@ def test_ui_adds_and_removes_outgoing_relation(tmp_path: Path) -> None:
         follow_redirects=False,
     )
     assert add_response.status_code == 303
-    assert load_decision(tmp_path, load_config(tmp_path), source.id).related_decisions == [
+    added = load_decision(tmp_path, load_config(tmp_path), source.id)
+    assert added.version == 2
+    assert added.related_decisions == [
         {"id": target.id, "type": "blocks", "note": "Must ship first"}
     ]
 
@@ -361,7 +432,14 @@ def test_ui_adds_and_removes_outgoing_relation(tmp_path: Path) -> None:
     )
 
     assert remove_response.status_code == 303
-    assert load_decision(tmp_path, load_config(tmp_path), source.id).related_decisions == []
+    removed = load_decision(tmp_path, load_config(tmp_path), source.id)
+    assert removed.version == 3
+    assert removed.related_decisions == []
+    assert [event["action"] for event in read_history_events(tmp_path, load_config(tmp_path), source.id)] == [
+        "created",
+        "relation_added",
+        "relation_removed",
+    ]
 
 
 def test_ui_audit_export_and_meeting_parser_actions(tmp_path: Path) -> None:
@@ -416,3 +494,4 @@ def test_ui_delete_blocks_referenced_records_and_deletes_unreferenced(tmp_path: 
     assert "Delete blocked" in blocked.text
     assert deleted.status_code == 303
     assert not free.path.exists()
+    assert read_history_events(tmp_path, load_config(tmp_path), free.id)[-1]["action"] == "deleted"

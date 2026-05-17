@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ current.id }} v{{ snapshot.version }}{% endblock %}
+{% block content %}
+<section class="page-title decision-title">
+  <div dir="auto">
+    <p class="meta-line">
+      {{ current.id }} · Snapshot v{{ snapshot.version }}
+      {% if event %} · {{ event.changed_at }} · {{ event.action|replace("_", " ") }}{% endif %}
+    </p>
+    <h1>{{ snapshot.title }}</h1>
+  </div>
+  <div class="page-actions">
+    <a class="button-secondary" href="/decisions/{{ current.id }}">Back to current decision</a>
+  </div>
+</section>
+
+<section class="reader-panel">
+  <div class="reader-meta" aria-label="Snapshot metadata">
+    <span>Status: {{ snapshot.status }}</span>
+    <span>Owner: {{ snapshot.owner or "-" }}</span>
+    <span>Date: {{ snapshot.decision_date or "-" }}</span>
+    <span>Updated: {{ snapshot.updated_at or "-" }}</span>
+  </div>
+  <article class="markdown-body markdown-reader" lang="{{ snapshot.language }}" dir="{{ snapshot.direction }}">
+    {{ body_html|safe }}
+  </article>
+</section>
+{% endblock %}

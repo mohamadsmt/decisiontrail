@@ -6,6 +6,8 @@ DecisionTrail is a local-first CLI for recording important product, business,
 strategy, hiring, pricing, risk, and technical decisions as Markdown files with
 YAML frontmatter. It gives decisions a durable shape: context, options,
 rationale, assumptions, success metrics, revisit dates, and outcome reviews.
+Every decision update creates a versioned sidecar snapshot so edits remain
+traceable without making the current Markdown record hard to read.
 
 The product language is English. Decision content can be English, Persian, or
 mixed RTL/LTR text.
@@ -41,6 +43,7 @@ decisiontrail list --status accepted --tag pricing
 decisiontrail due
 decisiontrail assumptions
 decisiontrail score
+decisiontrail history DEC-2026-001
 decisiontrail run weekly-review
 decisiontrail export --format html
 decisiontrail ui
@@ -82,6 +85,9 @@ related_decisions:
     note: Original pricing context
 language: en
 direction: auto
+version: 1
+created_at: "2026-05-11T10:00:00Z"
+updated_at: "2026-05-11T10:00:00Z"
 ```
 
 Persian content is stored directly as UTF-8:
@@ -105,6 +111,7 @@ decisiontrail list --status accepted --owner Product --tag pricing
 decisiontrail due
 decisiontrail assumptions
 decisiontrail score DEC-2026-001
+decisiontrail history DEC-2026-001
 decisiontrail new "Launch partner pilot" --parent DEC-2026-001 --related depends_on:DEC-2026-002
 decisiontrail relate DEC-2026-003 DEC-2026-001 --type informs --note "Pricing context"
 decisiontrail links DEC-2026-001
@@ -139,7 +146,7 @@ decisiontrail-mcp --path . --transport streamable-http --host 127.0.0.1 --port 8
 
 The MCP server provides tools for listing, searching, reading, creating,
 updating, relating, reviewing, auditing, parsing meeting notes, exporting HTML,
-and guarded deletion. It also exposes `decisiontrail://schema`,
+reading version history, and guarded deletion. It also exposes `decisiontrail://schema`,
 `decisiontrail://workflow-guide`, and a `capture_decision_from_rough` prompt so
 agents can turn rough product or business decisions into complete records and
 then audit the result.
@@ -161,9 +168,11 @@ Markdown/YAML files as the CLI. It includes:
 - decision list filters by status, owner, and tag
 - a form for creating new decision records with optional parent and typed links
 - edit forms for updating frontmatter and Markdown body without changing the ID
-  or filename
-- decision detail pages with scorecards, parent/child links, outgoing links,
-  computed backlinks, and Markdown preview
+  or filename; every edit creates a new version
+- read-first decision detail pages that put the Markdown decision body before
+  scorecards, audit warnings, relationship controls, reviews, and delete actions
+- collapsed scorecard, parent/child links, outgoing links, computed backlinks,
+  assumption controls, version history, and audit panels on the detail page
 - quick status changes and outcome review
 - assumption verification with `unvalidated`, `pending`, `validated`, and
   `invalidated` statuses
@@ -180,8 +189,30 @@ RTL/LTR decisions render cleanly.
 
 Delete is intentionally conservative: the UI hard-removes the Markdown file only
 after the exact decision ID is typed, and it blocks deletion while the decision
-has child decisions or incoming backlinks. Recovery is expected to come from the
-local filesystem or Git history.
+has child decisions or incoming backlinks. A final version snapshot is written
+before deletion. Recovery is expected to come from the local filesystem,
+DecisionTrail history snapshots, or Git history.
+
+## Version history
+
+Current decision files stay in `decisions/`. Version snapshots are stored under
+`.decisiontrail/history/<DECISION-ID>/` as full Markdown files:
+
+```text
+.decisiontrail/history/DEC-2026-001/v0001.md
+.decisiontrail/history/DEC-2026-001/v0002.md
+.decisiontrail/history/DEC-2026-001/events.jsonl
+```
+
+`events.jsonl` records the version, previous version, timestamp, source, action,
+changed fields, and snapshot path for each change. New records start at
+`version: 1`. Older records without version metadata are treated as v1; their first future
+change captures a v1 baseline snapshot and writes the updated record as v2.
+
+Versioned writes are shared by the web UI, CLI, and MCP server for edits, status
+changes, assumption verification, relation changes, outcome reviews, and guarded
+deletes. The feature is read-only: DecisionTrail shows history and snapshots, but
+does not restore old versions automatically.
 
 ## Relationships
 

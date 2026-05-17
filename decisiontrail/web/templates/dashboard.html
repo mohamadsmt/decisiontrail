@@ -24,7 +24,12 @@
 
 <section class="panel">
   <div class="panel-heading">
-    <h2>Decision records</h2>
+    <div>
+      <h2>Decision records</h2>
+      <p class="panel-subtitle">
+        Showing {{ pagination.start }}-{{ pagination.end }} of {{ pagination.total }} matching records
+      </p>
+    </div>
     <form class="filters" method="get" action="/">
       <select name="status" aria-label="Status filter">
         <option value="">All statuses</option>
@@ -39,15 +44,19 @@
         <option value="{{ tag }}" {% if tag_filter|lower == tag|lower %}selected{% endif %}>{{ tag }}</option>
         {% endfor %}
       </select>
+      <select name="per_page" aria-label="Rows per page">
+        {% for option in per_page_options %}
+        <option value="{{ option }}" {% if pagination.per_page == option %}selected{% endif %}>{{ option }} rows</option>
+        {% endfor %}
+      </select>
       <button type="submit">Filter</button>
     </form>
   </div>
   <div class="table-wrap">
-    <table>
+    <table class="decision-table">
       <thead>
         <tr>
-          <th>ID</th>
-          <th>Title</th>
+          <th>Decision</th>
           <th>Status</th>
           <th>Owner</th>
           <th>Parent</th>
@@ -55,19 +64,26 @@
           <th>Tags</th>
           <th>Score</th>
           <th>Revisit</th>
-          <th>Language</th>
         </tr>
       </thead>
       <tbody>
         {% for record in filtered_records %}
         <tr>
-          <td><a href="/decisions/{{ record.id }}">{{ record.id }}</a></td>
-          <td dir="auto">{{ record.title }}</td>
-          <td><span class="status-pill">{{ record.status }}</span></td>
-          <td dir="auto">{{ record.owner or "Unassigned" }}</td>
-          <td>{{ record.parent_id or "-" }}</td>
-          <td>{{ records|selectattr("parent_id", "equalto", record.id)|list|length }}</td>
-          <td>
+          <td class="decision-cell" data-label="Decision">
+            <a class="decision-id-link" href="/decisions/{{ record.id }}">{{ record.id }}</a>
+            <strong dir="auto">{{ record.title }}</strong>
+          </td>
+          <td data-label="Status"><span class="status-pill">{{ record.status }}</span></td>
+          <td data-label="Owner"><span dir="auto">{{ record.owner or "Unassigned" }}</span></td>
+          <td data-label="Parent">
+            {% if record.parent_id %}
+            <a href="/decisions/{{ record.parent_id }}">{{ record.parent_id }}</a>
+            {% else %}
+            -
+            {% endif %}
+          </td>
+          <td data-label="Children">{{ records|selectattr("parent_id", "equalto", record.id)|list|length }}</td>
+          <td data-label="Tags">
             {% set tags = tag_labels(record) %}
             {% if tags %}
             <div class="tag-list">
@@ -79,15 +95,30 @@
             -
             {% endif %}
           </td>
-          <td>{{ scores[record.id].score }}</td>
-          <td>{{ record.revisit_on or "-" }}</td>
-          <td>{{ record.language }} / {{ record.direction }}</td>
+          <td data-label="Score"><span class="score-badge">{{ scores[record.id].score }}</span></td>
+          <td class="nowrap" data-label="Revisit">{{ record.revisit_on or "-" }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  {% if not filtered_records %}
+  {% if filtered_count %}
+  <nav class="pagination" aria-label="Decision records pagination">
+    <span class="pagination-summary">Page {{ pagination.page }} of {{ pagination.total_pages }}</span>
+    <div class="pagination-actions">
+      {% if pagination.has_previous %}
+      <a class="button-secondary button-small" href="{{ pagination.previous_url }}">Previous</a>
+      {% else %}
+      <span class="button-secondary button-small is-disabled" aria-disabled="true">Previous</span>
+      {% endif %}
+      {% if pagination.has_next %}
+      <a class="button-secondary button-small" href="{{ pagination.next_url }}">Next</a>
+      {% else %}
+      <span class="button-secondary button-small is-disabled" aria-disabled="true">Next</span>
+      {% endif %}
+    </div>
+  </nav>
+  {% else %}
   <div class="empty-state">
     <div>
       <strong>No decision records match these filters.</strong>
