@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from decisiontrail.assumptions import normalize_assumption
 from decisiontrail.models import (
     DecisionRecord,
     VALID_DIRECTIONS,
@@ -29,8 +30,15 @@ class ScoreResult:
 class AssumptionItem:
     decision_id: str
     title: str
+    index: int
     text: str
     status: str
+    owner: str = ""
+    due_on: str = ""
+    signal: str = ""
+    evidence_refs: list[str] | None = None
+    note: str = ""
+    reviewed_on: str = ""
 
 
 def is_overdue(record: DecisionRecord, today: date | None = None) -> bool:
@@ -90,20 +98,24 @@ def score_decision(record: DecisionRecord, today: date | None = None) -> ScoreRe
 def assumption_items(records: list[DecisionRecord]) -> list[AssumptionItem]:
     items: list[AssumptionItem] = []
     for record in records:
-        for assumption in record.assumptions:
-            if isinstance(assumption, dict):
-                text = str(assumption.get("text", "")).strip()
-                status = str(assumption.get("status", "")).strip() or "unvalidated"
-            else:
-                text = str(assumption).strip()
-                status = "unvalidated"
+        for index, assumption in enumerate(record.assumptions):
+            normalized = normalize_assumption(assumption)
+            text = str(normalized.get("text", "")).strip()
+            status = str(normalized.get("status", "")).strip() or "unvalidated"
             if text:
                 items.append(
                     AssumptionItem(
                         decision_id=record.id,
                         title=record.title,
+                        index=index,
                         text=text,
                         status=status,
+                        owner=str(normalized.get("owner", "") or ""),
+                        due_on=str(normalized.get("due_on", "") or ""),
+                        signal=str(normalized.get("signal", "") or ""),
+                        evidence_refs=list(normalized.get("evidence_refs", []) or []),
+                        note=str(normalized.get("note", "") or ""),
+                        reviewed_on=str(normalized.get("reviewed_on", "") or ""),
                     )
                 )
     return items
@@ -163,3 +175,72 @@ def weekly_review(records: list[DecisionRecord], today: date | None = None) -> d
         "unvalidated_assumptions": assumptions,
         "review_candidates": review_candidates,
     }
+
+
+def outcome_report(records: list[DecisionRecord], today: date | None = None) -> dict[str, Any]:
+    current_date = today or date.today()
+    assumptions = assumption_items(records)
+    validated = [item for item in assumptions if item.status.lower() == "validated"]
+    invalidated = [item for item in assumptions if item.status.lower() == "invalidated"]
+    open_assumptions = unvalidated_assumptions(records)
+    accepted_overdue = [
+        record
+        for record in records
+        if record.status == "accepted" and is_overdue(record, current_date)
+    ]
+    invalidated_by_decision: dict[str, list[AssumptionItem]] = {}
+    for item in invalidated:
+        invalidated_by_decision.setdefault(item.decision_id, []).append(item)
+    supersede_candidates = [
+        record
+        for record in records
+        if record.status in {"accepted", "reviewed"}
+        and (
+            record.id in invalidated_by_decision
+            or (record.status == "accepted" and is_overdue(record, current_date))
+        )
+    ]
+    timeline = sorted(_decision_timeline(records), key=lambda item: (item["date"], item["id"], item["event"]))
+    return {
+        "accepted_overdue": accepted_overdue,
+        "decisions_without_metrics": missing_metrics(records),
+        "open_assumptions": open_assumptions,
+        "validated_assumptions": validated,
+        "invalidated_assumptions": invalidated,
+        "supersede_candidates": supersede_candidates,
+        "invalidated_by_decision": invalidated_by_decision,
+        "timeline": timeline,
+    }
+
+
+def _decision_timeline(records: list[DecisionRecord]) -> list[dict[str, str]]:
+    events: list[dict[str, str]] = []
+    for record in records:
+        if record.decision_date:
+            events.append(
+                {
+                    "date": record.decision_date.isoformat(),
+                    "id": record.id,
+                    "title": record.title,
+                    "event": "decided",
+                }
+            )
+        if record.revisit_on:
+            events.append(
+                {
+                    "date": record.revisit_on.isoformat(),
+                    "id": record.id,
+                    "title": record.title,
+                    "event": "revisit",
+                }
+            )
+        if record.reviewed_on:
+            events.append(
+                {
+                    "date": record.reviewed_on.isoformat(),
+                    "id": record.id,
+                    "title": record.title,
+                    "event": "reviewed",
+                }
+            )
+    return events

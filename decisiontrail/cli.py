@@ -9,6 +9,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from decisiontrail.assumptions import VALID_ASSUMPTION_STATUSES, update_assumption_status
 from decisiontrail.config import dump_default_config, load_config
 from decisiontrail.annotations import append_evidence, append_metric_update, evidence_items, metric_updates, remove_evidence_at
 from decisiontrail.drafts import create_drafts_from_meeting, delete_draft, list_drafts, load_draft, promote_draft
@@ -37,6 +38,7 @@ from decisiontrail.relationships import (
 from decisiontrail.review import (
     assumption_items,
     missing_metrics,
+    outcome_report,
     score_decision,
     unvalidated_assumptions,
     validate_record,
@@ -62,11 +64,13 @@ app = typer.Typer(help="Local-first decision records for product, business, and 
 run_app = typer.Typer(help="Run built-in local actions.")
 evidence_app = typer.Typer(help="Manage evidence references for a decision.")
 metric_app = typer.Typer(help="Manage metric updates for a decision.")
+assumptions_app = typer.Typer(help="Manage assumption validation plans.", invoke_without_command=True, no_args_is_help=False)
 drafts_app = typer.Typer(help="Manage local draft decisions.")
 views_app = typer.Typer(help="Manage private local saved views.")
 app.add_typer(run_app, name="run")
 app.add_typer(evidence_app, name="evidence")
 app.add_typer(metric_app, name="metric")
+app.add_typer(assumptions_app, name="assumptions")
 app.add_typer(drafts_app, name="drafts")
 app.add_typer(views_app, name="views")
 console = Console()
@@ -295,18 +299,68 @@ def due(path: Path = typer.Option(Path("."), "--path", "-p", help="Project path.
     _print_records("Decisions due for review", records)
 
 
-@app.command()
-def assumptions(path: Path = typer.Option(Path("."), "--path", "-p", help="Project path.")) -> None:
-    """List tracked assumptions."""
+@app.command("review-inbox")
+def review_inbox(path: Path = typer.Option(Path("."), "--path", "-p", help="Project path.")) -> None:
+    """Show the operational decision review loop."""
     root, config = _load(path)
-    items = assumption_items(load_decisions(root, config))
-    table = Table(title="Assumptions")
-    table.add_column("Decision")
-    table.add_column("Status")
-    table.add_column("Assumption")
-    for item in items:
-        table.add_row(item.decision_id, item.status, item.text)
-    console.print(table)
+    records = load_decisions(root, config)
+    _print_review_inbox(records)
+
+
+@assumptions_app.callback(invoke_without_command=True)
+def assumptions_callback(
+    ctx: typer.Context,
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Project path."),
+) -> None:
+    """List tracked assumptions."""
+    if ctx.invoked_subcommand is not None:
+        return
+    root, config = _load(path)
+    _print_assumption_rows("Assumptions", assumption_items(load_decisions(root, config)), include_plan=True)
+
+
+@assumptions_app.command("plan")
+def assumptions_plan(path: Path = typer.Option(Path("."), "--path", "-p", help="Project path.")) -> None:
+    """Show open assumptions with owners, due dates, signals, and evidence refs."""
+    root, config = _load(path)
+    _print_assumption_rows("Assumption validation plan", unvalidated_assumptions(load_decisions(root, config)), include_plan=True)
+
+
+@assumptions_app.command("update")
+def assumptions_update(
+    identifier: str,
+    index: int,
+    status: str,
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Project path."),
+    owner: str = typer.Option("", "--owner", help="Validation owner. Empty clears the owner."),
+    due_on: str = typer.Option("", "--due-on", help="ISO validation due date. Empty clears the date."),
+    signal: str = typer.Option("", "--signal", help="Validation signal. Empty clears the signal."),
+    evidence_ref: Optional[list[str]] = typer.Option(None, "--evidence-ref", help="Evidence ID to attach. Repeat to add multiple refs."),
+    note: str = typer.Option("", "--note", help="Review or validation note."),
+    reviewed_on: str = typer.Option("", "--reviewed-on", help="ISO reviewed date. Defaults to today."),
+) -> None:
+    """Update one assumption validation plan by zero-based index."""
+    if status not in VALID_ASSUMPTION_STATUSES:
+        raise typer.BadParameter(f"Status must be one of: {', '.join(sorted(VALID_ASSUMPTION_STATUSES))}.")
+    root, config = _load(path)
+    record = load_decision(root, config, identifier)
+    previous = copy_decision_record(record)
+    try:
+        update_assumption_status(
+            record,
+            index,
+            status,
+            note=note,
+            reviewed_on=reviewed_on or None,
+            owner=owner,
+            due_on=due_on,
+            signal=signal,
+            evidence_refs=evidence_ref or [],
+        )
+    except (IndexError, ValueError) as error:
+        raise typer.BadParameter(str(error)) from error
+    write_versioned_decision(root, config, previous, record, source="cli", action="assumption_updated")
+    console.print(f"Updated assumption {index} on [bold]{record.id}[/bold].")
 
 
 @app.command()
@@ -657,6 +711,9 @@ def evidence_add(
     ref: str = typer.Option("", "--ref", help="URL, local path, or external reference."),
     note: str = typer.Option("", "--note", help="Optional evidence note."),
     added_on: str = typer.Option("", "--added-on", help="ISO date. Defaults to today."),
+    evidence_id: str = typer.Option("", "--evidence-id", help="Stable evidence ID. Defaults to the next EVD number."),
+    assumption: Optional[int] = typer.Option(None, "--assumption", help="Zero-based assumption index to link."),
+    metric: str = typer.Option("", "--metric", help="Metric name to link."),
 ) -> None:
     """Add an evidence reference to a decision."""
     if evidence_type not in VALID_EVIDENCE_TYPES:
@@ -664,9 +721,22 @@ def evidence_add(
     root, config = _load(path)
     record = load_decision(root, config, identifier)
     previous = copy_decision_record(record)
-    item = append_evidence(record, title=title, evidence_type=evidence_type, ref=ref, note=note, added_on=added_on)
+    try:
+        item = append_evidence(
+            record,
+            title=title,
+            evidence_type=evidence_type,
+            ref=ref,
+            note=note,
+            added_on=added_on,
+            evidence_id=evidence_id,
+            assumption_index=assumption,
+            metric_name=metric,
+        )
+    except (IndexError, ValueError) as error:
+        raise typer.BadParameter(str(error)) from error
     write_versioned_decision(root, config, previous, record, source="cli", action="evidence_added")
-    console.print(f"Added evidence [bold]{item['title']}[/bold] to {record.id}.")
+    console.print(f"Added evidence [bold]{item.get('id', '') or item['title']}[/bold] to {record.id}.")
 
 
 @evidence_app.command("list")
@@ -679,12 +749,22 @@ def evidence_list(
     record = load_decision(root, config, identifier)
     table = Table(title=f"Evidence for {record.id}")
     table.add_column("#", justify="right")
+    table.add_column("ID")
     table.add_column("Type")
     table.add_column("Title")
     table.add_column("Reference")
+    table.add_column("Links")
     table.add_column("Added")
     for index, item in enumerate(evidence_items(record)):
-        table.add_row(str(index), item["type"], item["title"], item["ref"] or item["note"], item["added_on"])
+        table.add_row(
+            str(index),
+            str(item.get("id", "") or f"#{index}"),
+            item["type"],
+            item["title"],
+            item["ref"] or item["note"],
+            _format_evidence_links(item),
+            item["added_on"],
+        )
     console.print(table)
 
 
@@ -847,10 +927,12 @@ def views_delete(name: str, path: Path = typer.Option(Path("."), "--path", "-p",
 def run_weekly_review(path: Path = typer.Option(Path("."), "--path", "-p", help="Project path.")) -> None:
     """Run the built-in weekly review report."""
     root, config = _load(path)
-    report = weekly_review(load_decisions(root, config))
+    records = load_decisions(root, config)
+    report = weekly_review(records)
     _print_records("Decisions due for review", report["due"])
     _print_records("Decisions missing metrics", report["missing_metrics"])
-    _print_assumption_rows("Assumptions not validated", report["unvalidated_assumptions"])
+    _print_assumption_rows("Assumptions not validated", report["unvalidated_assumptions"], include_plan=True)
+    _print_outcome_report(outcome_report(records))
 
 
 @run_app.command("audit")
@@ -895,14 +977,57 @@ def _print_records(title: str, records: list) -> None:
     console.print(table)
 
 
-def _print_assumption_rows(title: str, rows: list) -> None:
+def _print_assumption_rows(title: str, rows: list, *, include_plan: bool = False) -> None:
     table = Table(title=title)
     table.add_column("Decision")
+    table.add_column("#", justify="right")
     table.add_column("Status")
     table.add_column("Assumption")
+    table.add_column("Owner")
+    table.add_column("Due")
+    table.add_column("Signal")
+    table.add_column("Evidence")
     for item in rows:
-        table.add_row(item.decision_id, item.status, item.text)
+        table.add_row(
+            item.decision_id,
+            str(item.index),
+            item.status,
+            item.text,
+            item.owner or "-",
+            item.due_on or "-",
+            item.signal or "-",
+            ", ".join(item.evidence_refs or []) or "-",
+        )
     console.print(table)
+
+
+def _print_review_inbox(records: list) -> None:
+    report = weekly_review(records)
+    _print_records("Decisions due for review", report["due"])
+    _print_records("Decisions missing metrics", report["missing_metrics"])
+    _print_assumption_rows("Open assumptions", report["unvalidated_assumptions"], include_plan=True)
+    _print_outcome_report(outcome_report(records))
+
+
+def _print_outcome_report(report: dict) -> None:
+    _print_records("Accepted but overdue", report["accepted_overdue"])
+    _print_records("Supersede candidates", report["supersede_candidates"])
+    table = Table(title="Decision outcome report")
+    table.add_column("Signal")
+    table.add_column("Count", justify="right")
+    table.add_row("Decisions without success metrics", str(len(report["decisions_without_metrics"])))
+    table.add_row("Open assumptions", str(len(report["open_assumptions"])))
+    table.add_row("Validated assumptions", str(len(report["validated_assumptions"])))
+    table.add_row("Invalidated assumptions", str(len(report["invalidated_assumptions"])))
+    table.add_row("Timeline events", str(len(report["timeline"])))
+    console.print(table)
+
+
+def _format_evidence_links(item: dict) -> str:
+    links = item.get("links") or []
+    if not links:
+        return "-"
+    return ", ".join(f"{link.get('type')}:{link.get('target')}" for link in links)
 
 
 def _print_audit(

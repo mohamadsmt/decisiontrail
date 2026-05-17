@@ -4,11 +4,9 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from decisiontrail.assumptions import VALID_ASSUMPTION_STATUSES, parse_evidence_refs, validate_assumption_dates
 from decisiontrail.models import DecisionRecord, VALID_DECISION_TYPES, VALID_DIRECTIONS, VALID_RELATION_TYPES, VALID_STATUSES
 from decisiontrail.relationships import normalize_related_decisions, parse_relation_lines, relation_to_metadata
-
-
-VALID_ASSUMPTION_STATUSES = {"unvalidated", "pending", "validated", "invalidated"}
 
 
 @dataclass(frozen=True)
@@ -36,8 +34,8 @@ def split_lines(value: str) -> list[str]:
     return [line.strip() for line in value.splitlines() if line.strip()]
 
 
-def parse_assumptions(value: str) -> list[dict[str, str]]:
-    assumptions: list[dict[str, str]] = []
+def parse_assumptions(value: str) -> list[dict[str, Any]]:
+    assumptions: list[dict[str, Any]] = []
     for line in split_lines(value):
         content, separator, note = line.partition("|")
         left = content.strip()
@@ -52,9 +50,48 @@ def parse_assumptions(value: str) -> list[dict[str, str]]:
             continue
         assumption = {"text": text, "status": status}
         if separator and note.strip():
-            assumption["note"] = note.strip()
+            assumption.update(parse_assumption_metadata(note.strip()))
         assumptions.append(assumption)
     return assumptions
+
+
+def parse_assumption_metadata(value: str) -> dict[str, Any]:
+    if "=" not in value:
+        return {"note": value}
+
+    metadata: dict[str, Any] = {}
+    note_parts: list[str] = []
+    for part in value.split(";"):
+        part = part.strip()
+        if not part:
+            continue
+        key, separator, raw_value = part.partition("=")
+        if not separator:
+            note_parts.append(part)
+            continue
+        key = key.strip()
+        text = raw_value.strip()
+        if key == "note":
+            if text:
+                metadata["note"] = text
+        elif key == "owner":
+            if text:
+                metadata["owner"] = text
+        elif key == "due_on":
+            if text:
+                metadata["due_on"] = text
+        elif key == "signal":
+            if text:
+                metadata["signal"] = text
+        elif key in {"evidence", "evidence_refs"}:
+            refs = parse_evidence_refs(text)
+            if refs:
+                metadata["evidence_refs"] = refs
+        else:
+            note_parts.append(part)
+    if note_parts and "note" not in metadata:
+        metadata["note"] = "; ".join(note_parts)
+    return metadata
 
 
 def validate_decision_form(
@@ -76,6 +113,11 @@ def validate_decision_form(
             date.fromisoformat(data.revisit_on.strip())
         except ValueError:
             errors.append("Revisit date must use ISO format: YYYY-MM-DD.")
+    for assumption in parse_assumptions(data.assumptions):
+        try:
+            validate_assumption_dates(assumption)
+        except ValueError as error:
+            errors.append(str(error))
     if data.parent_id.strip() and current_id and data.parent_id.strip() == current_id:
         errors.append("A decision cannot be its own parent.")
     if known_ids is not None and data.parent_id.strip() and data.parent_id.strip() not in known_ids:
@@ -124,14 +166,36 @@ def assumptions_to_text(record: DecisionRecord) -> str:
             text = str(assumption.get("text", "")).strip()
             status = str(assumption.get("status", "") or "unvalidated").strip()
             note = str(assumption.get("note", "") or "").strip()
+            owner = str(assumption.get("owner", "") or "").strip()
+            due_on = str(assumption.get("due_on", "") or "").strip()
+            signal = str(assumption.get("signal", "") or "").strip()
+            evidence_refs = parse_evidence_refs(assumption.get("evidence_refs"))
         else:
             text = str(assumption).strip()
             status = "unvalidated"
             note = ""
+            owner = ""
+            due_on = ""
+            signal = ""
+            evidence_refs = []
         if not text:
             continue
         prefix = f"{status}: " if status != "unvalidated" or note else ""
-        suffix = f" | {note}" if note else ""
+        details = []
+        if owner:
+            details.append(f"owner={owner}")
+        if due_on:
+            details.append(f"due_on={due_on}")
+        if signal:
+            details.append(f"signal={signal}")
+        if evidence_refs:
+            details.append(f"evidence={','.join(evidence_refs)}")
+        if details:
+            if note:
+                details.append(f"note={note}")
+            suffix = " | " + "; ".join(details)
+        else:
+            suffix = f" | {note}" if note else ""
         lines.append(f"{prefix}{text}{suffix}")
     return "\n".join(lines)
 

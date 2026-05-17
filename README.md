@@ -42,11 +42,13 @@ decisiontrail init
 decisiontrail new "Launch tiered pricing" --owner "Product"
 decisiontrail list --status accepted --tag pricing
 decisiontrail due
+decisiontrail review-inbox
 decisiontrail assumptions
+decisiontrail assumptions plan
 decisiontrail search pricing
 decisiontrail score
 decisiontrail history DEC-2026-001
-decisiontrail evidence add DEC-2026-001 "Margin sheet" --type url --ref https://example.com
+decisiontrail evidence add DEC-2026-001 "Margin sheet" --type url --ref https://example.com --assumption 0 --metric gross_margin
 decisiontrail metric add DEC-2026-001 gross_margin --value "42%" --measured-on 2026-08-01
 decisiontrail drafts list
 decisiontrail graph --format mermaid
@@ -78,15 +80,26 @@ rationale:
 assumptions:
   - text: High-volume merchants care more about reliability than small fee changes.
     status: unvalidated
+    owner: Product
+    due_on: 2026-06-15
+    signal: Five merchant interviews confirm tolerance.
+    evidence_refs:
+      - EVD-001
 success_metrics:
   - gross_margin
   - merchant_retention
 evidence:
-  - title: Margin model
+  - id: EVD-001
+    title: Margin model
     type: file
     ref: ./analysis/margin-model.xlsx
     note: Local evidence reference only; files are not copied.
     added_on: 2026-05-20
+    links:
+      - type: assumption
+        target: "0"
+      - type: metric
+        target: gross_margin
 metric_updates:
   - name: gross_margin
     value: 42%
@@ -128,6 +141,9 @@ decisiontrail new "Tagged decision" --tag pricing --tag growth
 decisiontrail list --status accepted --owner Product --tag pricing
 decisiontrail due
 decisiontrail assumptions
+decisiontrail review-inbox
+decisiontrail assumptions plan
+decisiontrail assumptions update DEC-2026-001 0 pending --owner Product --due-on 2026-06-15 --signal "Five merchant interviews"
 decisiontrail score DEC-2026-001
 decisiontrail history DEC-2026-001
 decisiontrail new "Launch partner pilot" --parent DEC-2026-001 --related depends_on:DEC-2026-002
@@ -138,7 +154,7 @@ decisiontrail search "pricing margin" --view Pricing
 decisiontrail graph --format json
 decisiontrail diff DEC-2026-001 --from 1 --to current
 decisiontrail restore DEC-2026-001 --version 1 --confirm-id DEC-2026-001
-decisiontrail evidence add DEC-2026-001 "Experiment note" --type note --note "Cohort stayed healthy."
+decisiontrail evidence add DEC-2026-001 "Experiment note" --type note --note "Cohort stayed healthy." --assumption 0 --metric gross_margin
 decisiontrail evidence list DEC-2026-001
 decisiontrail metric add DEC-2026-001 gross_margin --value "42%" --measured-on 2026-08-01
 decisiontrail metric list DEC-2026-001
@@ -175,7 +191,7 @@ decisiontrail-mcp --path . --transport streamable-http --host 127.0.0.1 --port 8
 
 The MCP server provides tools for listing, searching, reading, creating,
 updating, relating, reviewing, auditing, parsing meeting notes, exporting HTML,
-reading version history, and guarded deletion. It also exposes `decisiontrail://schema`,
+reading version history, draft context, review inbox reporting, and guarded deletion. It also exposes `decisiontrail://schema`,
 `decisiontrail://workflow-guide`, and a `capture_decision_from_rough` prompt so
 agents can turn rough product or business decisions into complete records and
 then audit the result.
@@ -195,7 +211,8 @@ Markdown/YAML files as the CLI. It includes:
 - dashboard summaries for due reviews, missing metrics, low scores, and
   unvalidated assumptions
 - a review inbox for due reviews, missing metrics, low scores, and open
-  assumptions
+  assumptions, with inline actions for outcome reviews, metrics, and assumption
+  validation plans
 - full-text search, built-in views, and private local saved views
 - a local decision graph for parent/child hierarchy and typed links
 - decision list filters by status, owner, and tag
@@ -206,7 +223,8 @@ Markdown/YAML files as the CLI. It includes:
   scorecards, audit warnings, relationship controls, reviews, and delete actions
 - collapsed scorecard, parent/child links, outgoing links, computed backlinks,
   assumption controls, version history, and audit panels on the detail page
-- evidence references and metric updates on each decision detail page
+- evidence references and metric updates on each decision detail page, including
+  stable evidence IDs and optional links to assumptions or metrics
 - history diffs and guarded restore-as-new-version from snapshots
 - quick status changes and outcome review
 - assumption verification with `unvalidated`, `pending`, `validated`, and
@@ -253,9 +271,17 @@ past history.
 ## Evidence, metrics, drafts, and views
 
 Evidence stores references only. DecisionTrail records URLs, local paths, notes,
-or experiment references in YAML but does not copy files into the project.
+or experiment references in YAML but does not copy files into the project. New
+evidence gets a stable `EVD-001` style ID and can link to a zero-based assumption
+index or a metric name. Linked assumption evidence is also reflected in the
+assumption's `evidence_refs` list.
 Metric updates are measured observations attached to a decision; they complement
 the target `success_metrics` list without replacing it.
+
+Assumptions can stay as plain strings or simple `{text, status}` mappings, but
+the review loop also supports optional `owner`, `due_on`, `signal`,
+`evidence_refs`, `reviewed_on`, and `note` fields. No migration is required for
+older records.
 
 Meeting notes and agent workflows can save private local drafts under
 `.decisiontrail/drafts/`. Drafts can be promoted into real Markdown decisions or
@@ -305,7 +331,8 @@ DecisionTrail includes local actions that can be run by humans, cron, shell
 scripts, or any generic CI runner:
 
 - `decisiontrail run weekly-review` reports overdue decisions, missing metrics,
-  unvalidated assumptions, and decisions that need an outcome review.
+  unvalidated assumptions, accepted-but-overdue decisions, supersede candidates,
+  and decisions that need an outcome review.
 - `decisiontrail run audit` validates structure, score quality, overdue policy,
   and RTL metadata consistency.
 - `decisiontrail run export-html` builds a static local archive.
@@ -320,7 +347,9 @@ decisiontrail run audit --fail-on-overdue --fail-under-score
 
 ## HTML export and RTL support
 
-HTML export writes local static pages to `site/`. Generated pages use `lang`,
+HTML export writes local static pages to `site/`. Generated pages include an
+`outcome-report.html` review-loop report alongside the index, graph, and
+decision pages. Generated pages use `lang`,
 `dir`, `dir="auto"`, and CSS logical properties so Persian, English, and mixed
 records render cleanly. The exported index includes a local tag filter for
 reviewing archived decisions by tag without a server.
@@ -333,6 +362,7 @@ decisiontrail export --format html --output site
 
 ```bash
 uv run pytest
+uv run python -m decisiontrail.cli review-inbox
 uv run decisiontrail --help
 uv run decisiontrail run weekly-review
 ```

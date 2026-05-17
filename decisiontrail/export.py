@@ -10,10 +10,10 @@ from decisiontrail.config import DecisionTrailConfig
 from decisiontrail.graph import graph_svg
 from decisiontrail.models import DecisionRecord, collect_tags, tag_key, tag_labels
 from decisiontrail.relationships import backlinks, children_of, outgoing_relations
-from decisiontrail.review import is_overdue
+from decisiontrail.review import is_overdue, outcome_report
 from decisiontrail.search import record_search_text
 from decisiontrail.storage import slugify
-from decisiontrail.templates import HTML_CSS, HTML_DECISION_TEMPLATE, HTML_GRAPH_TEMPLATE, HTML_INDEX_TEMPLATE
+from decisiontrail.templates import HTML_CSS, HTML_DECISION_TEMPLATE, HTML_GRAPH_TEMPLATE, HTML_INDEX_TEMPLATE, HTML_OUTCOME_REPORT_TEMPLATE
 
 
 def html_direction(record: DecisionRecord) -> str:
@@ -30,6 +30,7 @@ def export_html(records: list[DecisionRecord], output_dir: Path, config: Decisio
     index_template = Template(HTML_INDEX_TEMPLATE)
     decision_template = Template(HTML_DECISION_TEMPLATE)
     graph_template = Template(HTML_GRAPH_TEMPLATE)
+    outcome_report_template = Template(HTML_OUTCOME_REPORT_TEMPLATE)
 
     pages: list[Path] = []
     index_items = []
@@ -94,6 +95,12 @@ def export_html(records: list[DecisionRecord], output_dir: Path, config: Decisio
     graph_path = output_dir / "graph.html"
     graph_path.write_text(
         graph_template.render(records=records, graph_svg=graph_svg(records, href_for=lambda decision_id: hrefs_by_id[decision_id]), css=HTML_CSS),
+        encoding="utf-8",
+    )
+
+    report_path = output_dir / "outcome-report.html"
+    report_path.write_text(
+        outcome_report_template.render(report=outcome_report(records), hrefs_by_id=hrefs_by_id, css=HTML_CSS),
         encoding="utf-8",
     )
 

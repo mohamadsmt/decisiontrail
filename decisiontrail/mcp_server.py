@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from decisiontrail.assumptions import VALID_ASSUMPTION_STATUSES, normalize_assumption, validate_assumption_dates
 from decisiontrail.annotations import append_evidence, append_metric_update, evidence_items, metric_updates, remove_evidence_at
 from decisiontrail.config import load_config
 from decisiontrail.drafts import create_drafts_from_meeting, delete_draft, list_drafts, load_draft, promote_draft
@@ -37,6 +38,7 @@ from decisiontrail.relationships import (
 )
 from decisiontrail.review import (
     missing_metrics,
+    outcome_report,
     score_decision,
     unvalidated_assumptions,
     validate_record,
@@ -58,7 +60,7 @@ from decisiontrail.storage import (
 from decisiontrail.search import search_records
 from decisiontrail.views import delete_user_view, list_views, resolve_view, save_user_view
 from decisiontrail.web.actions import delete_blockers, remove_relation_at, update_assumption_status
-from decisiontrail.web.forms import VALID_ASSUMPTION_STATUSES, parse_assumptions, split_lines
+from decisiontrail.web.forms import parse_assumptions, split_lines
 
 
 DEFAULT_HTTP_HOST = "127.0.0.1"
@@ -164,32 +166,30 @@ def _normalize_string_list(value: Any) -> list[str] | None:
     return [str(item).strip() for item in value if str(item).strip()]
 
 
-def _normalize_assumption_list(value: Any) -> list[dict[str, str]] | None:
+def _normalize_assumption_list(value: Any) -> list[dict[str, Any]] | None:
     if value is None:
         return None
     if isinstance(value, str):
-        return parse_assumptions(value)
+        assumptions = parse_assumptions(value)
+        for assumption in assumptions:
+            validate_assumption_dates(assumption)
+        return assumptions
 
-    assumptions: list[dict[str, str]] = []
+    assumptions: list[dict[str, Any]] = []
     for item in value:
         if isinstance(item, dict):
-            text = str(item.get("text", "") or "").strip()
-            if not text:
-                continue
-            status = str(item.get("status", "") or "unvalidated").strip()
-            if status not in VALID_ASSUMPTION_STATUSES:
+            raw_status = str(item.get("status", "") or "unvalidated").strip()
+            if raw_status not in VALID_ASSUMPTION_STATUSES:
                 raise ValueError(f"Assumption status must be one of: {', '.join(sorted(VALID_ASSUMPTION_STATUSES))}.")
-            normalized = {"text": text, "status": status}
-            note = str(item.get("note", "") or "").strip()
-            reviewed_on = str(item.get("reviewed_on", "") or "").strip()
-            if note:
-                normalized["note"] = note
-            if reviewed_on:
-                _parse_iso_date(reviewed_on, field_name="reviewed_on")
-                normalized["reviewed_on"] = reviewed_on
+            normalized = normalize_assumption(item)
+            if not normalized.get("text"):
+                continue
+            validate_assumption_dates(normalized)
             assumptions.append(normalized)
         else:
             assumptions.extend(parse_assumptions(str(item)))
+    for assumption in assumptions:
+        validate_assumption_dates(assumption)
     return assumptions
 
 
@@ -254,6 +254,7 @@ class DecisionTrailMCPService:
                 "decision",
                 "rationale",
                 "assumptions",
+                "assumption owner/due_on/signal/evidence_refs",
                 "success_metrics",
                 "evidence",
                 "metric_updates",
@@ -267,19 +268,21 @@ class DecisionTrailMCPService:
     def workflow_guide(self) -> str:
         return (
             "Use DecisionTrail tools to convert rough decisions into durable records. "
-            "First inspect project_status and search/list existing decisions for context. "
+            "First inspect project_status and draft_context or search/list existing decisions for nearby context. "
             "When capturing a rough decision, infer context, options, rationale, assumptions, "
             "success metrics, revisit date, language, and direction from the user input. "
-            "Prefer create_drafts_from_meeting or save_draft-style workflows for rough input, then promote drafts after approval. "
-            "When direct creation is requested, call record_decision, then call audit_decisions and return the "
+            "Use a draft-first workflow for rough input, then promote drafts after approval. "
+            "Only call record_decision when the user explicitly asks for a direct write; then call audit_decisions and return the "
             "record ID, score, warnings, and follow-up gaps to the user. Preserve existing "
             "record paths on update_decision. Use add_relation for dependencies and review_decision "
-            "when measured outcomes are known. Inspect get_history before summarizing prior edits."
+            "when measured outcomes are known. Use review_inbox to close overdue reviews, metrics, and assumptions. "
+            "Inspect get_history before summarizing prior edits."
         )
 
     def project_status(self) -> dict[str, Any]:
         records = load_decisions(self.root, self.config)
         report = weekly_review(records)
+        outcomes = outcome_report(records)
         scores = [score_decision(record) for record in records]
         low_scores = [score for score in scores if score.score < self.config.score_threshold]
         return {
@@ -289,6 +292,9 @@ class DecisionTrailMCPService:
             "due_count": len(report["due"]),
             "missing_metrics_count": len(report["missing_metrics"]),
             "unvalidated_assumption_count": len(report["unvalidated_assumptions"]),
+            "validated_assumption_count": len(outcomes["validated_assumptions"]),
+            "invalidated_assumption_count": len(outcomes["invalidated_assumptions"]),
+            "supersede_candidate_count": len(outcomes["supersede_candidates"]),
             "low_score_count": len(low_scores),
             "score_threshold": self.config.score_threshold,
         }
@@ -370,6 +376,47 @@ class DecisionTrailMCPService:
             limit=limit,
         )
         return {"query": effective_query, "records": [self._record_summary(hit.record) | {"match_score": hit.score} for hit in hits]}
+
+    def draft_context(self, rough_decision: str = "", *, limit: int = 5) -> dict[str, Any]:
+        records = load_decisions(self.root, self.config)
+        safe_limit = max(1, min(limit, 5))
+        query = rough_decision.strip()
+        if query:
+            context_records = [hit.record for hit in search_records(records, query, limit=safe_limit)]
+        else:
+            context_records = sorted(
+                records,
+                key=lambda record: (
+                    record.updated_at or "",
+                    record.decision_date.isoformat() if record.decision_date else "",
+                    record.id,
+                ),
+                reverse=True,
+            )[:safe_limit]
+        return {
+            "rough_decision": query,
+            "limit": safe_limit,
+            "context_records": [self._record_summary(record) for record in context_records],
+            "instruction": "Use these nearby records as context, then save rough input as a draft before any final write.",
+        }
+
+    def review_inbox(self) -> dict[str, Any]:
+        records = load_decisions(self.root, self.config)
+        report = weekly_review(records)
+        outcomes = outcome_report(records)
+        scores = [score_decision(record) for record in records]
+        low_scores = [score for score in scores if score.score < self.config.score_threshold]
+        return {
+            "due": [self._record_summary(record) for record in report["due"]],
+            "missing_metrics": [self._record_summary(record) for record in report["missing_metrics"]],
+            "open_assumptions": [_jsonable(item) for item in report["unvalidated_assumptions"]],
+            "low_scores": [_jsonable(score) for score in low_scores],
+            "accepted_overdue": [self._record_summary(record) for record in outcomes["accepted_overdue"]],
+            "supersede_candidates": [self._record_summary(record) for record in outcomes["supersede_candidates"]],
+            "validated_assumptions": [_jsonable(item) for item in outcomes["validated_assumptions"]],
+            "invalidated_assumptions": [_jsonable(item) for item in outcomes["invalidated_assumptions"]],
+            "timeline": outcomes["timeline"],
+        }
 
     def record_decision(
         self,
@@ -576,13 +623,29 @@ class DecisionTrailMCPService:
         *,
         note: str = "",
         reviewed_on: str | None = None,
+        owner: str | None = None,
+        due_on: str | None = None,
+        signal: str | None = None,
+        evidence_refs: Any = None,
     ) -> dict[str, Any]:
         if reviewed_on:
             _parse_iso_date(reviewed_on, field_name="reviewed_on")
+        if due_on:
+            _parse_iso_date(due_on, field_name="due_on")
         config = self.config
         record = load_decision(self.root, config, identifier)
         previous = copy_decision_record(record)
-        update_assumption_status(record, assumption_index, status, note=note, reviewed_on=reviewed_on)
+        update_assumption_status(
+            record,
+            assumption_index,
+            status,
+            note=note,
+            reviewed_on=reviewed_on,
+            owner=owner,
+            due_on=due_on,
+            signal=signal,
+            evidence_refs=evidence_refs,
+        )
         write_versioned_decision(self.root, config, previous, record, source="mcp", action="assumption_updated")
         return self._write_result("updated", record)
 
@@ -626,11 +689,24 @@ class DecisionTrailMCPService:
         ref: str = "",
         note: str = "",
         added_on: str = "",
+        evidence_id: str = "",
+        assumption_index: int | None = None,
+        metric_name: str = "",
     ) -> dict[str, Any]:
         config = self.config
         record = load_decision(self.root, config, identifier)
         previous = copy_decision_record(record)
-        item = append_evidence(record, title=title, evidence_type=evidence_type, ref=ref, note=note, added_on=added_on)
+        item = append_evidence(
+            record,
+            title=title,
+            evidence_type=evidence_type,
+            ref=ref,
+            note=note,
+            added_on=added_on,
+            evidence_id=evidence_id,
+            assumption_index=assumption_index,
+            metric_name=metric_name,
+        )
         write_versioned_decision(self.root, config, previous, record, source="mcp", action="evidence_added")
         return {"item": item, **self._write_result("updated", record)}
 
@@ -750,6 +826,7 @@ class DecisionTrailMCPService:
     ) -> dict[str, Any]:
         records = load_decisions(self.root, self.config)
         report = weekly_review(records)
+        outcomes = outcome_report(records)
         scores = [score_decision(record) for record in records]
         low_scores = [score for score in scores if score.score < self.config.score_threshold]
         issues = [issue for record in records for issue in validate_record(record, records=records)]
@@ -760,6 +837,9 @@ class DecisionTrailMCPService:
             "due": [self._record_summary(record) for record in report["due"]],
             "missing_metrics": [self._record_summary(record) for record in missing_metrics(records)],
             "unvalidated_assumptions": [_jsonable(item) for item in unvalidated_assumptions(records)],
+            "accepted_overdue": [self._record_summary(record) for record in outcomes["accepted_overdue"]],
+            "supersede_candidates": [self._record_summary(record) for record in outcomes["supersede_candidates"]],
+            "invalidated_assumptions": [_jsonable(item) for item in outcomes["invalidated_assumptions"]],
             "failed": failed,
             "warn_only": not failed,
         }
@@ -769,11 +849,16 @@ class DecisionTrailMCPService:
         output_dir = _resolve_output_path(self.root, output, config.export_dir)
         records = load_decisions(self.root, config)
         pages = export_html_archive(records, output_dir, config)
+        extra_pages = [
+            str(page)
+            for page in [output_dir / "graph.html", output_dir / "outcome-report.html"]
+            if page.exists()
+        ]
         return {
             "output_dir": str(output_dir),
             "pages": [str(page) for page in pages],
             "page_count": len(records) + 1,
-            "extra_pages": [str(output_dir / "graph.html")] if (output_dir / "graph.html").exists() else [],
+            "extra_pages": extra_pages,
         }
 
     def delete_decision(self, identifier: str, *, confirm_id: str = "") -> dict[str, Any]:
@@ -899,11 +984,11 @@ def create_mcp_server(
             f"Default owner: {owner or 'infer or leave blank'}\n"
             f"Default status: {status or 'proposed'}\n\n"
             "Steps:\n"
-            "1. Call project_status and search_decisions/list_decisions for nearby context.\n"
+            "1. Call project_status and draft_context for 3 to 5 nearby decisions before drafting.\n"
             "2. Infer title, context, options, selected decision, rationale, assumptions, success metrics, "
             "revisit_on, language, direction, tags, parent_id, and related_decisions.\n"
-            "3. Save it as a draft first with parse_meeting/list_drafts style workflows unless the user explicitly asks for direct write.\n"
-            "4. After approval, promote the draft or call record_decision, then audit and report score, issues, version, and follow-up gaps."
+            "3. Save it as a draft first with parse_meeting/list_drafts style workflows.\n"
+            "4. After approval, promote the draft or call record_decision only if direct write was explicitly requested, then audit and report score, issues, version, and follow-up gaps."
         )
 
     @mcp.tool()
@@ -952,6 +1037,16 @@ def create_mcp_server(
     ) -> dict[str, Any]:
         """Search decision records by text across metadata and body."""
         return active_service.search_decisions(query, status=status, owner=owner, tag=tag, view=view, limit=limit)
+
+    @mcp.tool()
+    def draft_context(rough_decision: str = "", limit: int = 5) -> dict[str, Any]:
+        """Return up to five nearby decisions for draft-first AI capture context without writing records."""
+        return active_service.draft_context(rough_decision, limit=limit)
+
+    @mcp.tool()
+    def review_inbox() -> dict[str, Any]:
+        """Return the decision review loop: due reviews, metrics, assumptions, and outcome signals."""
+        return active_service.review_inbox()
 
     @mcp.tool()
     def record_decision(
@@ -1061,9 +1156,23 @@ def create_mcp_server(
         status: str,
         note: str = "",
         reviewed_on: str | None = None,
+        owner: str | None = None,
+        due_on: str | None = None,
+        signal: str | None = None,
+        evidence_refs: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Update one assumption status by zero-based index."""
-        return active_service.update_assumption(identifier, assumption_index, status, note=note, reviewed_on=reviewed_on)
+        """Update one assumption status and validation plan by zero-based index."""
+        return active_service.update_assumption(
+            identifier,
+            assumption_index,
+            status,
+            note=note,
+            reviewed_on=reviewed_on,
+            owner=owner,
+            due_on=due_on,
+            signal=signal,
+            evidence_refs=evidence_refs,
+        )
 
     @mcp.tool()
     def review_decision(identifier: str, outcome: str, reviewed_on: str = "", metric_note: str = "") -> dict[str, Any]:
@@ -1078,9 +1187,22 @@ def create_mcp_server(
         ref: str = "",
         note: str = "",
         added_on: str = "",
+        evidence_id: str = "",
+        assumption_index: int | None = None,
+        metric_name: str = "",
     ) -> dict[str, Any]:
-        """Add an evidence reference to a decision."""
-        return active_service.add_evidence(identifier, title=title, evidence_type=evidence_type, ref=ref, note=note, added_on=added_on)
+        """Add an evidence reference to a decision, optionally linked to an assumption or metric."""
+        return active_service.add_evidence(
+            identifier,
+            title=title,
+            evidence_type=evidence_type,
+            ref=ref,
+            note=note,
+            added_on=added_on,
+            evidence_id=evidence_id,
+            assumption_index=assumption_index,
+            metric_name=metric_name,
+        )
 
     @mcp.tool()
     def remove_evidence(identifier: str, evidence_index: int) -> dict[str, Any]:

@@ -24,7 +24,26 @@
     <h2>Due reviews</h2>
     <ul class="compact-list">
       {% for record in due %}
-      <li><a href="/decisions/{{ record.id }}#metrics">{{ record.id }}</a><span dir="auto">{{ record.title }}</span><small>Revisit {{ record.revisit_on or "-" }}</small></li>
+      <li>
+        <a href="/decisions/{{ record.id }}#metrics">{{ record.id }}</a>
+        <span dir="auto">{{ record.title }}</span>
+        <small>Revisit {{ record.revisit_on or "-" }}</small>
+        <form class="compact-form inline-review-form" method="post" action="/decisions/{{ record.id }}/review">
+          <div class="field">
+            <label for="outcome_{{ record.id }}">Outcome</label>
+            <input id="outcome_{{ record.id }}" name="outcome" dir="auto" required>
+          </div>
+          <div class="field">
+            <label for="reviewed_on_{{ record.id }}">Reviewed on</label>
+            <input id="reviewed_on_{{ record.id }}" name="reviewed_on" type="date" value="{{ today }}" dir="ltr">
+          </div>
+          <div class="field">
+            <label for="metric_note_{{ record.id }}">Metric note</label>
+            <input id="metric_note_{{ record.id }}" name="metric_note" dir="auto">
+          </div>
+          <button class="button" type="submit">Save review</button>
+        </form>
+      </li>
       {% else %}
       <li>No decisions are due.</li>
       {% endfor %}
@@ -34,7 +53,25 @@
     <h2>Missing metrics</h2>
     <ul class="compact-list">
       {% for record in missing_metrics %}
-      <li><a href="/decisions/{{ record.id }}#metrics">{{ record.id }}</a><span dir="auto">{{ record.title }}</span></li>
+      <li>
+        <a href="/decisions/{{ record.id }}#metrics">{{ record.id }}</a>
+        <span dir="auto">{{ record.title }}</span>
+        <form class="compact-form inline-review-form" method="post" action="/decisions/{{ record.id }}/metrics">
+          <div class="field">
+            <label for="metric_name_{{ record.id }}">Metric</label>
+            <input id="metric_name_{{ record.id }}" name="name" dir="auto" required>
+          </div>
+          <div class="field">
+            <label for="metric_value_{{ record.id }}">Value</label>
+            <input id="metric_value_{{ record.id }}" name="value" dir="auto">
+          </div>
+          <div class="field">
+            <label for="measured_on_{{ record.id }}">Measured on</label>
+            <input id="measured_on_{{ record.id }}" name="measured_on" type="date" value="{{ today }}" dir="ltr">
+          </div>
+          <button class="button-secondary" type="submit">Add metric</button>
+        </form>
+      </li>
       {% else %}
       <li>No decisions are missing metrics.</li>
       {% endfor %}
@@ -44,7 +81,39 @@
     <h2>Unvalidated assumptions</h2>
     <ul class="compact-list">
       {% for item in unvalidated_assumptions %}
-      <li><a href="/decisions/{{ item.decision_id }}#assumptions">{{ item.decision_id }}</a><span dir="auto">{{ item.text }}</span><small>{{ item.status }}</small></li>
+      <li>
+        <a href="/decisions/{{ item.decision_id }}#assumptions">{{ item.decision_id }} #{{ item.index }}</a>
+        <span dir="auto">{{ item.text }}</span>
+        <small>{{ item.status }}{% if item.owner %} · {{ item.owner }}{% endif %}{% if item.due_on %} · due {{ item.due_on }}{% endif %}</small>
+        <form class="compact-form inline-review-form" method="post" action="/decisions/{{ item.decision_id }}/assumptions/{{ item.index }}">
+          <div class="field">
+            <label for="assumption_status_{{ item.decision_id }}_{{ item.index }}">Status</label>
+            <select id="assumption_status_{{ item.decision_id }}_{{ item.index }}" name="status">
+              {% for status in assumption_statuses %}
+              <option value="{{ status }}" {% if item.status == status %}selected{% endif %}>{{ status }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="assumption_owner_{{ item.decision_id }}_{{ item.index }}">Owner</label>
+            <input id="assumption_owner_{{ item.decision_id }}_{{ item.index }}" name="owner" value="{{ item.owner }}" dir="auto">
+          </div>
+          <div class="field">
+            <label for="assumption_due_{{ item.decision_id }}_{{ item.index }}">Due on</label>
+            <input id="assumption_due_{{ item.decision_id }}_{{ item.index }}" name="due_on" type="date" value="{{ item.due_on }}" dir="ltr">
+          </div>
+          <div class="field wide">
+            <label for="assumption_signal_{{ item.decision_id }}_{{ item.index }}">Signal</label>
+            <input id="assumption_signal_{{ item.decision_id }}_{{ item.index }}" name="signal" value="{{ item.signal }}" dir="auto">
+          </div>
+          <div class="field wide">
+            <label for="assumption_note_{{ item.decision_id }}_{{ item.index }}">Note</label>
+            <input id="assumption_note_{{ item.decision_id }}_{{ item.index }}" name="note" value="{{ item.note }}" dir="auto">
+          </div>
+          <input type="hidden" name="evidence_refs" value="{{ item.evidence_refs|join(',') }}">
+          <button class="button-secondary" type="submit">Save assumption</button>
+        </form>
+      </li>
       {% else %}
       <li>No assumptions need validation.</li>
       {% endfor %}
@@ -60,5 +129,57 @@
       {% endfor %}
     </ul>
   </article>
+</section>
+
+<section class="panel">
+  <div class="panel-heading">
+    <div>
+      <h2>Decision outcome report</h2>
+      <p class="panel-subtitle">Signals that a decision needs continuation, correction, or superseding.</p>
+    </div>
+    <a class="button-secondary" href="/audit">Open audit</a>
+  </div>
+  <section class="grid-two nested-grid">
+    <article>
+      <h2>Accepted but overdue</h2>
+      <ul class="compact-list">
+        {% for record in outcome_report.accepted_overdue %}
+        <li><a href="/decisions/{{ record.id }}">{{ record.id }}</a><span dir="auto">{{ record.title }}</span><small>Revisit {{ record.revisit_on or "-" }}</small></li>
+        {% else %}
+        <li>No accepted decisions are overdue.</li>
+        {% endfor %}
+      </ul>
+    </article>
+    <article>
+      <h2>Supersede candidates</h2>
+      <ul class="compact-list">
+        {% for record in outcome_report.supersede_candidates %}
+        <li><a href="/decisions/{{ record.id }}">{{ record.id }}</a><span dir="auto">{{ record.title }}</span></li>
+        {% else %}
+        <li>No supersede candidates.</li>
+        {% endfor %}
+      </ul>
+    </article>
+    <article>
+      <h2>Validated assumptions</h2>
+      <ul class="compact-list">
+        {% for item in outcome_report.validated_assumptions %}
+        <li><a href="/decisions/{{ item.decision_id }}#assumptions">{{ item.decision_id }} #{{ item.index }}</a><span dir="auto">{{ item.text }}</span></li>
+        {% else %}
+        <li>No assumptions validated yet.</li>
+        {% endfor %}
+      </ul>
+    </article>
+    <article>
+      <h2>Invalidated assumptions</h2>
+      <ul class="compact-list">
+        {% for item in outcome_report.invalidated_assumptions %}
+        <li><a href="/decisions/{{ item.decision_id }}#assumptions">{{ item.decision_id }} #{{ item.index }}</a><span dir="auto">{{ item.text }}</span></li>
+        {% else %}
+        <li>No assumptions invalidated yet.</li>
+        {% endfor %}
+      </ul>
+    </article>
+  </section>
 </section>
 {% endblock %}

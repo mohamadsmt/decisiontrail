@@ -93,7 +93,7 @@ HTML_INDEX_TEMPLATE = """<!doctype html>
       <p class="eyebrow">DecisionTrail</p>
       <h1>Decision records</h1>
       <p><span data-record-count>{{ records|length }} records shown</span> · {{ records|length }} records exported locally.</p>
-      <p><a href="graph.html">Open decision graph</a></p>
+      <p><a href="graph.html">Open decision graph</a> · <a href="outcome-report.html">Open outcome report</a></p>
     </header>
     <form class="filter-bar" aria-label="Decision filters">
       <label for="tag-filter">Tag</label>
@@ -276,9 +276,17 @@ HTML_DECISION_TEMPLATE = """<!doctype html>
           <ul class="link-list">
             {% for item in evidence_items %}
             <li>
-              <strong>{{ item.type }}</strong>
+              <strong>{{ item.id or item.type }}</strong>
               <span dir="auto">{{ item.title }}</span>
               {% if item.ref %}<a href="{{ item.ref }}" dir="auto">{{ item.ref }}</a>{% endif %}
+              {% if item.links %}
+              <small>
+                Links:
+                {% for link in item.links %}
+                {{ link.type }}:{{ link.target }}{% if not loop.last %}, {% endif %}
+                {% endfor %}
+              </small>
+              {% endif %}
               {% if item.note %}<small dir="auto">{{ item.note }}</small>{% endif %}
             </li>
             {% else %}
@@ -329,6 +337,90 @@ HTML_GRAPH_TEMPLATE = """<!doctype html>
     </header>
     <section class="relationship-panel">
       {{ graph_svg|safe }}
+    </section>
+  </main>
+</body>
+</html>
+"""
+
+
+HTML_OUTCOME_REPORT_TEMPLATE = """<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DecisionTrail outcome report</title>
+  <style>{{ css }}</style>
+</head>
+<body>
+  <main class="shell">
+    <nav class="top-nav"><a href="index.html">Decision records</a></nav>
+    <header class="page-header">
+      <p class="eyebrow">DecisionTrail</p>
+      <h1>Outcome report</h1>
+      <p>Review-loop signals for accepted decisions, metrics, assumptions, and supersede candidates.</p>
+    </header>
+    <section class="relationship-grid" aria-label="Outcome report">
+      <div class="relationship-panel">
+        <h2>Accepted but overdue</h2>
+        <ul class="link-list">
+          {% for record in report.accepted_overdue %}
+          <li><a href="{{ hrefs_by_id[record.id] }}">{{ record.id }}</a><span dir="auto">{{ record.title }}</span><small>Revisit {{ record.revisit_on or "-" }}</small></li>
+          {% else %}
+          <li>No accepted decisions are overdue.</li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div class="relationship-panel">
+        <h2>Decisions without metrics</h2>
+        <ul class="link-list">
+          {% for record in report.decisions_without_metrics %}
+          <li><a href="{{ hrefs_by_id[record.id] }}">{{ record.id }}</a><span dir="auto">{{ record.title }}</span></li>
+          {% else %}
+          <li>No decisions are missing success metrics.</li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div class="relationship-panel">
+        <h2>Open assumptions</h2>
+        <ul class="link-list">
+          {% for item in report.open_assumptions %}
+          <li><a href="{{ hrefs_by_id[item.decision_id] }}">{{ item.decision_id }} #{{ item.index }}</a><span dir="auto">{{ item.text }}</span><small>{{ item.status }}{% if item.owner %} · {{ item.owner }}{% endif %}{% if item.due_on %} · due {{ item.due_on }}{% endif %}</small></li>
+          {% else %}
+          <li>No open assumptions.</li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div class="relationship-panel">
+        <h2>Invalidated assumptions</h2>
+        <ul class="link-list">
+          {% for item in report.invalidated_assumptions %}
+          <li><a href="{{ hrefs_by_id[item.decision_id] }}">{{ item.decision_id }} #{{ item.index }}</a><span dir="auto">{{ item.text }}</span></li>
+          {% else %}
+          <li>No assumptions invalidated yet.</li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div class="relationship-panel">
+        <h2>Supersede candidates</h2>
+        <ul class="link-list">
+          {% for record in report.supersede_candidates %}
+          <li><a href="{{ hrefs_by_id[record.id] }}">{{ record.id }}</a><span dir="auto">{{ record.title }}</span></li>
+          {% else %}
+          <li>No supersede candidates.</li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div class="relationship-panel">
+        <h2>Timeline</h2>
+        <ul class="link-list">
+          {% for item in report.timeline %}
+          <li><a href="{{ hrefs_by_id[item.id] }}">{{ item.id }}</a><span>{{ item.date }} · {{ item.event }}</span><small dir="auto">{{ item.title }}</small></li>
+          {% else %}
+          <li>No timeline events.</li>
+          {% endfor %}
+        </ul>
+      </div>
     </section>
   </main>
 </body>

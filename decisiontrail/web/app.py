@@ -38,6 +38,7 @@ from decisiontrail.relationships import (
 from decisiontrail.review import (
     assumption_items,
     missing_metrics,
+    outcome_report,
     score_decision,
     unvalidated_assumptions,
     validate_record,
@@ -192,6 +193,7 @@ def create_web_app(root: Path) -> FastAPI:
         records = load_decisions(root, config)
         scores = [score_decision(record) for record in records]
         report = weekly_review(records)
+        outcomes = outcome_report(records)
         return templates.TemplateResponse(
             request,
             "review.html",
@@ -203,6 +205,10 @@ def create_web_app(root: Path) -> FastAPI:
                 "unvalidated_assumptions": report["unvalidated_assumptions"],
                 "review_candidates": report["review_candidates"],
                 "low_scores": [score for score in scores if score.score < config.score_threshold],
+                "outcome_report": outcomes,
+                "records_by_id": {record.id: record for record in records},
+                "assumption_statuses": sorted(VALID_ASSUMPTION_STATUSES),
+                "today": date.today().isoformat(),
             },
         )
 
@@ -542,12 +548,27 @@ def create_web_app(root: Path) -> FastAPI:
         index: int,
         status: Annotated[str, Form()],
         note: Annotated[str, Form()] = "",
+        owner: Annotated[str, Form()] = "",
+        due_on: Annotated[str, Form()] = "",
+        signal: Annotated[str, Form()] = "",
+        evidence_refs: Annotated[str, Form()] = "",
+        reviewed_on: Annotated[str, Form()] = "",
     ) -> Response:
         config = load_config(root)
         record = load_decision(root, config, identifier)
         previous = copy_decision_record(record)
         try:
-            update_assumption_status(record, index, status, note=note)
+            update_assumption_status(
+                record,
+                index,
+                status,
+                note=note,
+                owner=owner,
+                due_on=due_on,
+                signal=signal,
+                evidence_refs=evidence_refs,
+                reviewed_on=reviewed_on or None,
+            )
         except (IndexError, ValueError) as error:
             return render_detail(request, root, identifier, [str(error)], 422)
         write_versioned_decision(root, config, previous, record, source="web", action="assumption_updated")
@@ -641,13 +662,27 @@ def create_web_app(root: Path) -> FastAPI:
         ref: Annotated[str, Form()] = "",
         note: Annotated[str, Form()] = "",
         added_on: Annotated[str, Form()] = "",
+        evidence_id: Annotated[str, Form()] = "",
+        assumption_index: Annotated[str, Form()] = "",
+        metric_name: Annotated[str, Form()] = "",
     ) -> Response:
         config = load_config(root)
         record = load_decision(root, config, identifier)
         previous = copy_decision_record(record)
         try:
-            append_evidence(record, title=title, evidence_type=evidence_type, ref=ref, note=note, added_on=added_on)
-        except ValueError as error:
+            linked_assumption = int(assumption_index) if assumption_index.strip() else None
+            append_evidence(
+                record,
+                title=title,
+                evidence_type=evidence_type,
+                ref=ref,
+                note=note,
+                added_on=added_on,
+                evidence_id=evidence_id,
+                assumption_index=linked_assumption,
+                metric_name=metric_name,
+            )
+        except (IndexError, ValueError) as error:
             return render_detail(request, root, identifier, [str(error)], 422)
         write_versioned_decision(root, config, previous, record, source="web", action="evidence_added")
         return RedirectResponse(url=f"/decisions/{record.id}#evidence", status_code=303)

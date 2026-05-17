@@ -190,6 +190,12 @@
       <li>
         <strong class="status-pill">{{ item.status }}</strong>
         <span dir="auto">{{ item.text }}</span>
+        <small>
+          {% if item.owner %}Owner {{ item.owner }}{% endif %}
+          {% if item.due_on %}{% if item.owner %} · {% endif %}Due {{ item.due_on }}{% endif %}
+          {% if item.signal %}{% if item.owner or item.due_on %} · {% endif %}<span dir="auto">{{ item.signal }}</span>{% endif %}
+          {% if item.evidence_refs %}{% if item.owner or item.due_on or item.signal %} · {% endif %}Evidence {{ item.evidence_refs|join(", ") }}{% endif %}
+        </small>
         <form class="compact-form" method="post" action="/decisions/{{ record.id }}/assumptions/{{ loop.index0 }}">
           <div class="field">
             <label for="assumption_status_{{ loop.index0 }}">Status</label>
@@ -198,6 +204,22 @@
               <option value="{{ status }}" {% if item.status == status %}selected{% endif %}>{{ status }}</option>
               {% endfor %}
             </select>
+          </div>
+          <div class="field">
+            <label for="assumption_owner_{{ loop.index0 }}">Owner</label>
+            <input id="assumption_owner_{{ loop.index0 }}" name="owner" value="{{ item.owner }}" dir="auto">
+          </div>
+          <div class="field">
+            <label for="assumption_due_on_{{ loop.index0 }}">Due on</label>
+            <input id="assumption_due_on_{{ loop.index0 }}" name="due_on" type="date" value="{{ item.due_on }}" dir="ltr">
+          </div>
+          <div class="field">
+            <label for="assumption_signal_{{ loop.index0 }}">Signal</label>
+            <input id="assumption_signal_{{ loop.index0 }}" name="signal" value="{{ item.signal }}" dir="auto">
+          </div>
+          <div class="field">
+            <label for="assumption_evidence_refs_{{ loop.index0 }}">Evidence refs</label>
+            <input id="assumption_evidence_refs_{{ loop.index0 }}" name="evidence_refs" value="{{ item.evidence_refs|join(',') }}" dir="ltr">
           </div>
           <div class="field">
             <label for="assumption_note_{{ loop.index0 }}">Note</label>
@@ -251,8 +273,16 @@
     <ul class="compact-list">
       {% for item in evidence_items %}
       <li>
-        <strong>{{ item.title }}</strong>
+        <strong>{{ item.id or "#" ~ loop.index0 }} · {{ item.title }}</strong>
         <span>{{ item.type }} · {{ item.added_on or "-" }}</span>
+        {% if item.links %}
+        <small>
+          Links:
+          {% for link in item.links %}
+          {{ link.type }}:{{ link.target }}{% if not loop.last %}, {% endif %}
+          {% endfor %}
+        </small>
+        {% endif %}
         {% if item.ref %}
         <a href="{{ item.ref }}" dir="auto">{{ item.ref }}</a>
         {% endif %}
@@ -272,6 +302,10 @@
         <input id="evidence_title" name="title" dir="auto" required>
       </div>
       <div class="field">
+        <label for="evidence_id">Evidence ID</label>
+        <input id="evidence_id" name="evidence_id" dir="ltr" placeholder="Auto">
+      </div>
+      <div class="field">
         <label for="evidence_type">Type</label>
         <select id="evidence_type" name="evidence_type">
           {% for evidence_type in valid_evidence_types %}
@@ -286,6 +320,19 @@
       <div class="field">
         <label for="evidence_added_on">Added on</label>
         <input id="evidence_added_on" name="added_on" type="date" value="{{ today }}" dir="ltr">
+      </div>
+      <div class="field">
+        <label for="evidence_assumption_index">Assumption</label>
+        <select id="evidence_assumption_index" name="assumption_index">
+          <option value="">None</option>
+          {% for item in assumption_details %}
+          <option value="{{ loop.index0 }}">#{{ loop.index0 }} · {{ item.text }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="evidence_metric_name">Metric</label>
+        <input id="evidence_metric_name" name="metric_name" dir="auto">
       </div>
       <div class="field wide">
         <label for="evidence_note">Note</label>
