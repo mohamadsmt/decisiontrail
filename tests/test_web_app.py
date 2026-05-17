@@ -182,6 +182,33 @@ def test_dashboard_filters_by_status_and_owner(tmp_path: Path) -> None:
     assert "CEO decision" not in response.text
 
 
+def test_dashboard_filters_by_tag_with_exact_case_insensitive_match(tmp_path: Path) -> None:
+    config = load_config(tmp_path)
+    pricing = create_decision(tmp_path, config, "Product pricing", owner="Product", status="accepted", tags=["Pricing"])
+    create_decision(tmp_path, config, "Product operations", owner="Product", status="accepted", tags=["Operations"])
+    create_decision(tmp_path, config, "CEO pricing", owner="CEO", status="accepted", tags=["Pricing"])
+    client = TestClient(create_web_app(tmp_path))
+
+    response = client.get("/", params={"status": "accepted", "owner": "Product", "tag": "pricing"})
+
+    assert response.status_code == 200
+    assert "Product pricing" in response.text
+    assert "Product operations" not in response.text
+    assert "CEO pricing" not in response.text
+    assert '<option value="Pricing" selected>Pricing</option>' in response.text
+    assert 'class="tag-pill" href="/?tag=Pricing"' in response.text
+
+    detail_response = client.get(f"/decisions/{pricing.id}")
+    assert detail_response.status_code == 200
+    assert 'aria-label="Decision tags"' in detail_response.text
+    assert 'class="tag-pill" href="/?tag=Pricing"' in detail_response.text
+
+    empty_response = client.get("/", params={"tag": "price"})
+    assert empty_response.status_code == 200
+    assert "No decision records match these filters." in empty_response.text
+    assert "Product pricing" not in empty_response.text
+
+
 def test_new_decision_form_supports_parent_prefill(tmp_path: Path) -> None:
     config = load_config(tmp_path)
     parent = create_decision(tmp_path, config, "Parent decision")

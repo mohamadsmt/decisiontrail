@@ -11,7 +11,13 @@ from rich.table import Table
 
 from decisiontrail.config import dump_default_config, load_config
 from decisiontrail.export import export_html
-from decisiontrail.models import VALID_DIRECTIONS, VALID_RELATION_TYPES, VALID_STATUSES
+from decisiontrail.models import (
+    VALID_DIRECTIONS,
+    VALID_RELATION_TYPES,
+    VALID_STATUSES,
+    filter_records_by_tag,
+    tag_labels,
+)
 from decisiontrail.parser import parse_meeting_notes
 from decisiontrail.relationships import (
     append_relation,
@@ -139,6 +145,7 @@ def new(
     language: str = typer.Option("en", "--language", help="Content language code."),
     direction: str = typer.Option("auto", "--direction", help="Text direction: auto, ltr, or rtl."),
     revisit_on: str = typer.Option("", "--revisit-on", help="ISO revisit date."),
+    tag: Optional[list[str]] = typer.Option(None, "--tag", help="Decision tag. Repeat to add multiple tags."),
     parent: str = typer.Option("", "--parent", help="Parent decision ID."),
     related: Optional[list[str]] = typer.Option(None, "--related", help="Typed relation, e.g. depends_on:DEC-2026-002."),
 ) -> None:
@@ -169,6 +176,7 @@ def new(
         language=language,
         direction=direction,
         revisit_on=revisit_on,
+        tags=tag or [],
         parent_id=parent,
         related_decisions=[relation_to_metadata(relation) for relation in related_decisions],
     )
@@ -180,6 +188,7 @@ def list_decisions(
     path: Path = typer.Option(Path("."), "--path", "-p", help="Project path."),
     status: Optional[str] = typer.Option(None, "--status", help="Filter by status."),
     owner: Optional[str] = typer.Option(None, "--owner", help="Filter by owner."),
+    tag: Optional[str] = typer.Option(None, "--tag", help="Filter by tag."),
     due_before: Optional[str] = typer.Option(None, "--due-before", help="Filter records due on or before an ISO date."),
 ) -> None:
     """List decision records."""
@@ -189,19 +198,29 @@ def list_decisions(
         records = [record for record in records if record.status == status]
     if owner:
         records = [record for record in records if record.owner.lower() == owner.lower()]
+    records = filter_records_by_tag(records, tag)
     if due_before:
         target = date.fromisoformat(due_before)
         records = [record for record in records if record.revisit_on and record.revisit_on <= target]
 
     table = Table(title="Decision records")
-    table.add_column("ID")
-    table.add_column("Status")
-    table.add_column("Owner")
-    table.add_column("Parent")
-    table.add_column("Revisit")
+    table.add_column("ID", no_wrap=True)
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Owner", no_wrap=True)
+    table.add_column("Parent", no_wrap=True)
+    table.add_column("Revisit", no_wrap=True)
+    table.add_column("Tags", no_wrap=True)
     table.add_column("Title")
     for record in records:
-        table.add_row(record.id, record.status, record.owner or "-", record.parent_id or "-", str(record.revisit_on or "-"), record.title)
+        table.add_row(
+            record.id,
+            record.status,
+            record.owner or "-",
+            record.parent_id or "-",
+            str(record.revisit_on or "-"),
+            ", ".join(tag_labels(record)) or "-",
+            record.title,
+        )
     console.print(table)
 
 

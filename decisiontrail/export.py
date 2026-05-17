@@ -6,7 +6,7 @@ from jinja2 import Template
 from markdown import markdown
 
 from decisiontrail.config import DecisionTrailConfig
-from decisiontrail.models import DecisionRecord
+from decisiontrail.models import DecisionRecord, collect_tags, tag_key, tag_labels
 from decisiontrail.relationships import backlinks, children_of, outgoing_relations
 from decisiontrail.storage import slugify
 from decisiontrail.templates import HTML_CSS, HTML_DECISION_TEMPLATE, HTML_INDEX_TEMPLATE
@@ -30,11 +30,22 @@ def export_html(records: list[DecisionRecord], output_dir: Path, config: Decisio
     index_items = []
     records_by_id = {record.id: record for record in records}
     hrefs_by_id = {record.id: decision_href(record) for record in records}
+    tag_options = [{"label": tag, "key": tag_key(tag)} for tag in collect_tags(records)]
     for record in records:
         href = hrefs_by_id[record.id]
         parent = records_by_id.get(record.parent_id) if record.parent_id else None
         children = children_of(records, record.id)
-        index_items.append({"record": record, "href": href, "parent": parent, "child_count": len(children)})
+        tags = tag_labels(record)
+        index_items.append(
+            {
+                "record": record,
+                "href": href,
+                "parent": parent,
+                "child_count": len(children),
+                "tags": tags,
+                "tag_keys": [tag_key(tag) for tag in tags],
+            }
+        )
         body_html = markdown(record.body, extensions=["fenced_code", "tables"])
         details = [
             ("Owner", record.owner or "Unassigned"),
@@ -54,6 +65,7 @@ def export_html(records: list[DecisionRecord], output_dir: Path, config: Decisio
                 hrefs_by_id=hrefs_by_id,
                 parent=parent,
                 children=children,
+                tags=tags,
                 outgoing_relations=outgoing_relations(record),
                 backlinks=backlinks(records, record.id),
                 css=HTML_CSS,
@@ -66,7 +78,7 @@ def export_html(records: list[DecisionRecord], output_dir: Path, config: Decisio
 
     index_path = output_dir / "index.html"
     index_path.write_text(
-        index_template.render(records=index_items, css=HTML_CSS, config=config),
+        index_template.render(records=index_items, tag_options=tag_options, css=HTML_CSS, config=config),
         encoding="utf-8",
     )
     return [index_path, *pages]

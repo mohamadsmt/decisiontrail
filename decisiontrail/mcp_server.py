@@ -16,6 +16,8 @@ from decisiontrail.models import (
     VALID_RELATION_TYPES,
     VALID_STATUSES,
     contains_rtl_text,
+    filter_records_by_tag,
+    tag_labels,
 )
 from decisiontrail.parser import parse_meeting_text
 from decisiontrail.relationships import (
@@ -227,6 +229,7 @@ class DecisionTrailMCPService:
                 "assumptions",
                 "success_metrics",
                 "revisit_on",
+                "tags",
             ],
             "root": str(self.root),
             "config": _jsonable(self.config),
@@ -265,6 +268,7 @@ class DecisionTrailMCPService:
         *,
         status: str | None = None,
         owner: str | None = None,
+        tag: str | None = None,
         due_before: str | None = None,
     ) -> dict[str, Any]:
         records = load_decisions(self.root, self.config)
@@ -273,6 +277,7 @@ class DecisionTrailMCPService:
             records = [record for record in records if record.status == status]
         if owner:
             records = [record for record in records if record.owner.lower() == owner.lower()]
+        records = filter_records_by_tag(records, tag)
         if due_before:
             target = _parse_iso_date(due_before, field_name="due_before")
             records = [record for record in records if record.revisit_on and record.revisit_on <= target]
@@ -289,10 +294,11 @@ class DecisionTrailMCPService:
         *,
         status: str | None = None,
         owner: str | None = None,
+        tag: str | None = None,
         limit: int = 20,
     ) -> dict[str, Any]:
         query = query.strip().lower()
-        records = self.list_decisions(status=status, owner=owner)["records"]
+        records = self.list_decisions(status=status, owner=owner, tag=tag)["records"]
         matches = []
         for summary in records:
             record = load_decision(self.root, self.config, summary["id"])
@@ -660,7 +666,7 @@ class DecisionTrailMCPService:
             "language": record.language,
             "direction": record.direction,
             "parent_id": record.parent_id,
-            "tags": _jsonable(record.tags),
+            "tags": tag_labels(record),
             "path": str(record.path),
             "score": score_decision(record).score,
         }
@@ -740,9 +746,14 @@ def create_mcp_server(
         return active_service.project_status()
 
     @mcp.tool()
-    def list_decisions(status: str | None = None, owner: str | None = None, due_before: str | None = None) -> dict[str, Any]:
+    def list_decisions(
+        status: str | None = None,
+        owner: str | None = None,
+        tag: str | None = None,
+        due_before: str | None = None,
+    ) -> dict[str, Any]:
         """List decision records with optional filters."""
-        return active_service.list_decisions(status=status, owner=owner, due_before=due_before)
+        return active_service.list_decisions(status=status, owner=owner, tag=tag, due_before=due_before)
 
     @mcp.tool()
     def get_decision(identifier: str) -> dict[str, Any]:
@@ -750,9 +761,15 @@ def create_mcp_server(
         return active_service.get_decision(identifier)
 
     @mcp.tool()
-    def search_decisions(query: str, status: str | None = None, owner: str | None = None, limit: int = 20) -> dict[str, Any]:
+    def search_decisions(
+        query: str,
+        status: str | None = None,
+        owner: str | None = None,
+        tag: str | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
         """Search decision records by text across metadata and body."""
-        return active_service.search_decisions(query, status=status, owner=owner, limit=limit)
+        return active_service.search_decisions(query, status=status, owner=owner, tag=tag, limit=limit)
 
     @mcp.tool()
     def record_decision(

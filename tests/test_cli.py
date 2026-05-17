@@ -23,6 +23,10 @@ def test_cli_init_new_list_and_score(tmp_path: Path) -> None:
             str(tmp_path),
             "--owner",
             "Product",
+            "--tag",
+            "Pricing",
+            "--tag",
+            "Growth",
             "--revisit-on",
             "2026-07-15",
         ],
@@ -32,7 +36,17 @@ def test_cli_init_new_list_and_score(tmp_path: Path) -> None:
 
     result = runner.invoke(app, ["list", "--path", str(tmp_path), "--owner", "Product"])
     assert result.exit_code == 0
-    assert "Launch pricing" in result.output
+    assert "DEC-2026-001" in result.output
+    assert "Pricing" in result.output
+    assert "Growth" in result.output
+
+    result = runner.invoke(app, ["list", "--path", str(tmp_path), "--tag", "pricing"])
+    assert result.exit_code == 0
+    assert "DEC-2026-001" in result.output
+
+    result = runner.invoke(app, ["list", "--path", str(tmp_path), "--tag", "price"])
+    assert result.exit_code == 0
+    assert "DEC-2026-001" not in result.output
 
     result = runner.invoke(app, ["score", "--path", str(tmp_path)])
     assert result.exit_code == 0

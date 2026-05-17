@@ -19,6 +19,14 @@
   <article><span>{{ record.revisit_on or "-" }}</span><strong>Revisit</strong></article>
 </section>
 
+{% if record_tags %}
+<section class="tag-strip" aria-label="Decision tags">
+  {% for tag in record_tags %}
+  <a class="tag-pill" href="/?tag={{ tag|urlencode }}" dir="auto">{{ tag }}</a>
+  {% endfor %}
+</section>
+{% endif %}
+
 {% if issues %}
 <section class="alert" role="status">
   <strong>Audit warnings</strong>

@@ -46,6 +46,37 @@ def normalize_list(value: Any) -> list[Any]:
     return [value]
 
 
+def normalize_tag(value: Any) -> str:
+    return str(value).strip()
+
+
+def tag_key(value: Any) -> str:
+    return normalize_tag(value).casefold()
+
+
+def tag_labels(record: "DecisionRecord") -> list[str]:
+    return [tag for tag in (normalize_tag(item) for item in record.tags) if tag]
+
+
+def record_has_tag(record: "DecisionRecord", tag: str | None) -> bool:
+    key = tag_key(tag or "")
+    return bool(key) and any(tag_key(item) == key for item in record.tags)
+
+
+def filter_records_by_tag(records: list["DecisionRecord"], tag: str | None) -> list["DecisionRecord"]:
+    if not tag or not tag.strip():
+        return records
+    return [record for record in records if record_has_tag(record, tag)]
+
+
+def collect_tags(records: list["DecisionRecord"]) -> list[str]:
+    tags_by_key: dict[str, str] = {}
+    for record in records:
+        for tag in tag_labels(record):
+            tags_by_key.setdefault(tag_key(tag), tag)
+    return sorted(tags_by_key.values(), key=lambda value: value.casefold())
+
+
 def contains_rtl_text(value: Any) -> bool:
     text = str(value)
     return any("\u0590" <= char <= "\u08ff" for char in text)

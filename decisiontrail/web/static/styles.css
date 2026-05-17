@@ -337,6 +337,36 @@ th {
   width: fit-content;
 }
 
+.tag-list,
+.tag-strip {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tag-strip {
+  margin-block: -4px 16px;
+}
+
+.tag-pill {
+  background: #eef8f4;
+  border: 1px solid #cde7df;
+  border-radius: 999px;
+  color: var(--accent);
+  display: inline-flex;
+  font-size: 0.76rem;
+  font-weight: 680;
+  line-height: 1;
+  padding: 5px 8px;
+  text-decoration: none;
+  width: fit-content;
+}
+
+.tag-pill:hover {
+  border-color: var(--accent);
+}
+
 .grid-two {
   align-items: start;
   display: grid;

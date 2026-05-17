@@ -33,6 +33,12 @@
         {% endfor %}
       </select>
       <input name="owner" value="{{ owner_filter }}" placeholder="Owner" aria-label="Owner filter">
+      <select name="tag" aria-label="Tag filter">
+        <option value="">All tags</option>
+        {% for tag in tag_options %}
+        <option value="{{ tag }}" {% if tag_filter|lower == tag|lower %}selected{% endif %}>{{ tag }}</option>
+        {% endfor %}
+      </select>
       <button type="submit">Filter</button>
     </form>
   </div>
@@ -46,6 +52,7 @@
           <th>Owner</th>
           <th>Parent</th>
           <th>Children</th>
+          <th>Tags</th>
           <th>Score</th>
           <th>Revisit</th>
           <th>Language</th>
@@ -60,6 +67,18 @@
           <td dir="auto">{{ record.owner or "Unassigned" }}</td>
           <td>{{ record.parent_id or "-" }}</td>
           <td>{{ records|selectattr("parent_id", "equalto", record.id)|list|length }}</td>
+          <td>
+            {% set tags = tag_labels(record) %}
+            {% if tags %}
+            <div class="tag-list">
+              {% for tag in tags %}
+              <a class="tag-pill" href="/?tag={{ tag|urlencode }}" dir="auto">{{ tag }}</a>
+              {% endfor %}
+            </div>
+            {% else %}
+            -
+            {% endif %}
+          </td>
           <td>{{ scores[record.id].score }}</td>
           <td>{{ record.revisit_on or "-" }}</td>
           <td>{{ record.language }} / {{ record.direction }}</td>

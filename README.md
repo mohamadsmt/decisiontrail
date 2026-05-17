@@ -37,7 +37,7 @@ uv run decisiontrail --help
 ```bash
 decisiontrail init
 decisiontrail new "Launch tiered pricing" --owner "Product"
-decisiontrail list --status accepted
+decisiontrail list --status accepted --tag pricing
 decisiontrail due
 decisiontrail assumptions
 decisiontrail score
@@ -72,6 +72,9 @@ success_metrics:
   - gross_margin
   - merchant_retention
 revisit_on: 2026-07-15
+tags:
+  - pricing
+  - growth
 parent_id: ""
 related_decisions:
   - id: DEC-2026-000
@@ -97,7 +100,8 @@ records, and `ltr` for English-first records.
 ```bash
 decisiontrail init
 decisiontrail new "Decision title"
-decisiontrail list --status accepted --owner Product
+decisiontrail new "Tagged decision" --tag pricing --tag growth
+decisiontrail list --status accepted --owner Product --tag pricing
 decisiontrail due
 decisiontrail assumptions
 decisiontrail score DEC-2026-001
@@ -154,7 +158,7 @@ Markdown/YAML files as the CLI. It includes:
 
 - dashboard summaries for due reviews, missing metrics, low scores, and
   unvalidated assumptions
-- decision list filters by status and owner
+- decision list filters by status, owner, and tag
 - a form for creating new decision records with optional parent and typed links
 - edit forms for updating frontmatter and Markdown body without changing the ID
   or filename
@@ -165,6 +169,10 @@ Markdown/YAML files as the CLI. It includes:
   `invalidated` statuses
 - local audit, HTML export, and meeting-note parsing from the browser
 - guarded delete for unreferenced decisions
+
+Tags are stored in the existing `tags` frontmatter list and are matched as
+trimmed, case-insensitive exact values. For example, `pricing` matches
+`Pricing`, but `price` does not match `pricing`.
 
 All UI labels are English. Content fields use `dir="auto"`, and record previews
 honor each decision's `language` and `direction` metadata so Persian and mixed
@@ -234,7 +242,8 @@ decisiontrail run audit --fail-on-overdue --fail-under-score
 
 HTML export writes local static pages to `site/`. Generated pages use `lang`,
 `dir`, `dir="auto"`, and CSS logical properties so Persian, English, and mixed
-records render cleanly.
+records render cleanly. The exported index includes a local tag filter for
+reviewing archived decisions by tag without a server.
 
 ```bash
 decisiontrail export --format html --output site

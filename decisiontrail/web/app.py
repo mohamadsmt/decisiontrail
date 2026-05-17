@@ -12,7 +12,15 @@ from markdown import markdown
 
 from decisiontrail.config import load_config
 from decisiontrail.export import export_html
-from decisiontrail.models import DecisionRecord, VALID_DIRECTIONS, VALID_RELATION_TYPES, VALID_STATUSES
+from decisiontrail.models import (
+    DecisionRecord,
+    VALID_DIRECTIONS,
+    VALID_RELATION_TYPES,
+    VALID_STATUSES,
+    collect_tags,
+    filter_records_by_tag,
+    tag_labels,
+)
 from decisiontrail.parser import parse_meeting_text
 from decisiontrail.relationships import (
     append_relation,
@@ -57,10 +65,11 @@ def create_web_app(root: Path) -> FastAPI:
         request: Request,
         status: Annotated[str | None, Query()] = None,
         owner: Annotated[str | None, Query()] = None,
+        tag: Annotated[str | None, Query()] = None,
     ) -> HTMLResponse:
         config = load_config(root)
         records = load_decisions(root, config)
-        filtered = filter_records(records, status=status, owner=owner)
+        filtered = filter_records(records, status=status, owner=owner, tag=tag)
         report = weekly_review(records)
         scores = [score_decision(record) for record in records]
         low_scores = [score for score in scores if score.score < config.score_threshold]
@@ -77,6 +86,9 @@ def create_web_app(root: Path) -> FastAPI:
                 "low_scores": low_scores,
                 "status_filter": status or "",
                 "owner_filter": owner or "",
+                "tag_filter": tag or "",
+                "tag_options": collect_tags(records),
+                "tag_labels": tag_labels,
                 "valid_statuses": sorted(VALID_STATUSES),
             },
         )
@@ -426,12 +438,13 @@ def create_web_app(root: Path) -> FastAPI:
     return app
 
 
-def filter_records(records, *, status: str | None, owner: str | None):
+def filter_records(records, *, status: str | None, owner: str | None, tag: str | None):
     filtered = records
     if status:
         filtered = [record for record in filtered if record.status == status]
     if owner:
         filtered = [record for record in filtered if record.owner.lower() == owner.lower()]
+    filtered = filter_records_by_tag(filtered, tag)
     return filtered
 
 
@@ -514,6 +527,7 @@ def render_detail(
             "score": score,
             "assumptions": assumptions,
             "assumption_details": [normalize_assumption(item) for item in record.assumptions],
+            "record_tags": tag_labels(record),
             "body_html": body_html,
             "issues": validate_record(record, records=records),
             "action_errors": action_errors or [],

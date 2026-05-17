@@ -71,6 +71,29 @@ def test_export_html_uses_rtl_metadata_and_utf8_content(tmp_path) -> None:
     assert "margin-inline" in html
 
 
+def test_export_html_renders_tags_and_static_tag_filter(tmp_path) -> None:
+    config = load_config(tmp_path)
+    pricing = create_decision(tmp_path, config, "Pricing decision", tags=["Pricing", "Growth"])
+    create_decision(tmp_path, config, "Operations decision", tags=["Operations"])
+
+    pages = export_html([pricing], tmp_path / "single-site", config)
+    single_index = (tmp_path / "single-site" / "index.html").read_text(encoding="utf-8")
+    detail_html = next(path for path in pages if path.name != "index.html").read_text(encoding="utf-8")
+
+    assert 'data-tag-filter' in single_index
+    assert '<option value="pricing">Pricing</option>' in single_index
+    assert '<span class="tag-pill">Pricing</span>' in single_index
+    assert '<span class="tag-pill">Growth</span>' in detail_html
+
+    all_pages = export_html([pricing, create_decision(tmp_path, config, "Support decision", tags=["Operations"])], tmp_path / "site-all", config)
+    all_index = (tmp_path / "site-all" / "index.html").read_text(encoding="utf-8")
+    assert 'JSON.parse(card.dataset.tagKeys || "[]")' in all_index
+    assert "data-tag-keys=" in all_index
+    assert "pricing" in all_index
+    assert "growth" in all_index
+    assert len(all_pages) == 3
+
+
 def test_export_html_renders_relationships_and_backlinks(tmp_path) -> None:
     config = load_config(tmp_path)
     parent = create_decision(tmp_path, config, "Parent decision")

@@ -227,13 +227,17 @@ def test_mcp_stdio_smoke_lists_tools_and_records_decision(tmp_path: Path) -> Non
 
 def test_mcp_service_works_with_existing_storage_records(tmp_path: Path) -> None:
     config = load_config(tmp_path)
-    record = create_decision(tmp_path, config, "Existing decision", owner="CEO")
+    record = create_decision(tmp_path, config, "Existing decision", owner="CEO", tags=["Strategy"])
+    create_decision(tmp_path, config, "Other decision", owner="CEO", tags=["Operations"])
 
     service = DecisionTrailMCPService(tmp_path)
 
-    listed = service.list_decisions(owner="CEO")
+    listed = service.list_decisions(owner="CEO", tag="strategy")
     assert listed["records"][0]["id"] == record.id
-    assert service.search_decisions("existing")["records"][0]["id"] == record.id
+    assert listed["records"][0]["tags"] == ["Strategy"]
+    assert service.list_decisions(tag="strat")["records"] == []
+    assert service.search_decisions("existing", tag="strategy")["records"][0]["id"] == record.id
+    assert service.search_decisions("existing", tag="operations")["records"] == []
     assert service.get_decision(record.id)["title"] == "Existing decision"
 
 

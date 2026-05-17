@@ -76,16 +76,32 @@ HTML_INDEX_TEMPLATE = """<!doctype html>
     <header class="page-header">
       <p class="eyebrow">DecisionTrail</p>
       <h1>Decision records</h1>
-      <p>{{ records|length }} records exported locally.</p>
+      <p><span data-record-count>{{ records|length }} records shown</span> · {{ records|length }} records exported locally.</p>
     </header>
+    <form class="filter-bar" aria-label="Decision filters">
+      <label for="tag-filter">Tag</label>
+      <select id="tag-filter" data-tag-filter>
+        <option value="">All tags</option>
+        {% for tag in tag_options %}
+        <option value="{{ tag.key }}">{{ tag.label }}</option>
+        {% endfor %}
+      </select>
+    </form>
     <section class="record-grid" aria-label="Decision records">
       {% for item in records %}
-      <article class="record-card" dir="auto">
+      <article class="record-card" dir="auto" data-record-card data-tag-keys='{{ item.tag_keys|tojson }}'>
         <div class="meta-row">
           <span>{{ item.record.id }}</span>
           <span>{{ item.record.status }}</span>
         </div>
         <h2><a href="{{ item.href }}">{{ item.record.title }}</a></h2>
+        {% if item.tags %}
+        <div class="tag-list">
+          {% for tag in item.tags %}
+          <span class="tag-pill">{{ tag }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
         <dl>
           <div><dt>Owner</dt><dd>{{ item.record.owner or "Unassigned" }}</dd></div>
           <div><dt>Parent</dt><dd>{% if item.parent %}{{ item.parent.id }}{% else %}None{% endif %}</dd></div>
@@ -97,6 +113,24 @@ HTML_INDEX_TEMPLATE = """<!doctype html>
       {% endfor %}
     </section>
   </main>
+  <script>
+    const tagFilter = document.querySelector("[data-tag-filter]");
+    const recordCount = document.querySelector("[data-record-count]");
+    const cards = Array.from(document.querySelectorAll("[data-record-card]"));
+    function applyTagFilter() {
+      const selectedTag = tagFilter.value;
+      let visibleCount = 0;
+      for (const card of cards) {
+        const tagKeys = JSON.parse(card.dataset.tagKeys || "[]");
+        const isVisible = !selectedTag || tagKeys.includes(selectedTag);
+        card.hidden = !isVisible;
+        if (isVisible) visibleCount += 1;
+      }
+      recordCount.textContent = `${visibleCount} records shown`;
+    }
+    tagFilter.addEventListener("change", applyTagFilter);
+    applyTagFilter();
+  </script>
 </body>
 </html>
 """
@@ -117,6 +151,13 @@ HTML_DECISION_TEMPLATE = """<!doctype html>
       <header class="page-header" dir="auto">
         <p class="eyebrow">{{ record.id }} · {{ record.status }}</p>
         <h1>{{ record.title }}</h1>
+        {% if tags %}
+        <div class="tag-list">
+          {% for tag in tags %}
+          <span class="tag-pill">{{ tag }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
       </header>
       <section class="details" aria-label="Decision metadata">
         {% for label, value in details %}
@@ -262,11 +303,37 @@ h2 { font-size: 1.2rem; margin-block: 12px; }
   gap: 16px;
 }
 
+.filter-bar {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  margin-block-end: 18px;
+}
+
+.filter-bar label {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.filter-bar select {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--text);
+  font: inherit;
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
 .record-card {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 18px;
+}
+
+.record-card[hidden] {
+  display: none;
 }
 
 .meta-row {
@@ -275,6 +342,26 @@ h2 { font-size: 1.2rem; margin-block: 12px; }
   gap: 12px;
   color: var(--muted);
   font-size: 0.86rem;
+}
+
+.tag-list {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-block: 10px;
+}
+
+.tag-pill {
+  background: #eef8f4;
+  border: 1px solid #cde7df;
+  border-radius: 999px;
+  color: var(--accent);
+  display: inline-flex;
+  font-size: 0.76rem;
+  font-weight: 680;
+  line-height: 1;
+  padding: 5px 8px;
 }
 
 dl, .details {
