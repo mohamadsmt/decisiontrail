@@ -68,7 +68,22 @@ def test_new_decision_form_renders_empty_state(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert "Add decision" in response.text
     assert 'id="revisit_on" name="revisit_on" type="date" value="" dir="ltr"' in response.text
+    assert '<select id="language" name="language">' in response.text
+    assert '<option value="en" selected>English</option>' in response.text
+    assert '<option value="fa" >Persian</option>' in response.text
     assert 'dir="auto"' in response.text
+
+
+def test_edit_decision_form_preserves_custom_language_option(tmp_path: Path) -> None:
+    config = load_config(tmp_path)
+    record = create_decision(tmp_path, config, "Arabic decision", language="ar", direction="rtl")
+    client = TestClient(create_web_app(tmp_path))
+
+    response = client.get(f"/decisions/{record.id}/edit")
+
+    assert response.status_code == 200
+    assert '<select id="language" name="language">' in response.text
+    assert '<option value="ar" selected>ar</option>' in response.text
 
 
 def test_ui_creates_persian_rtl_decision(tmp_path: Path) -> None:
@@ -321,6 +336,8 @@ def test_ui_edit_updates_record_without_renaming_file(tmp_path: Path) -> None:
     edit_response = client.get(f"/decisions/{record.id}/edit")
     assert edit_response.status_code == 200
     assert 'id="revisit_on" name="revisit_on" type="date" value="2026-09-01" dir="ltr"' in edit_response.text
+    assert '<select id="language" name="language">' in edit_response.text
+    assert '<option value="en" selected>English</option>' in edit_response.text
 
     response = client.post(
         f"/decisions/{record.id}/edit",

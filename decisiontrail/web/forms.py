@@ -9,6 +9,13 @@ from decisiontrail.models import DecisionRecord, VALID_DECISION_TYPES, VALID_DIR
 from decisiontrail.relationships import normalize_related_decisions, parse_relation_lines, relation_to_metadata
 
 
+VALID_LANGUAGE_OPTIONS = [
+    {"code": "en", "label": "English"},
+    {"code": "fa", "label": "Persian"},
+]
+VALID_LANGUAGE_CODES = [option["code"] for option in VALID_LANGUAGE_OPTIONS]
+
+
 @dataclass(frozen=True)
 class DecisionFormData:
     title: str = ""

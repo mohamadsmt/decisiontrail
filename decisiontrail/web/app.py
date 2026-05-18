@@ -61,6 +61,8 @@ from decisiontrail.search import search_records
 from decisiontrail.views import list_views, resolve_view, save_user_view
 from decisiontrail.web.actions import delete_blockers, normalize_assumption, remove_relation_at, update_assumption_status
 from decisiontrail.web.forms import (
+    VALID_LANGUAGE_CODES,
+    VALID_LANGUAGE_OPTIONS,
     VALID_ASSUMPTION_STATUSES,
     DecisionFormData,
     form_to_create_kwargs,
@@ -835,6 +837,8 @@ def render_form(
             "records": load_decisions(root, load_config(root)),
             "valid_statuses": sorted(VALID_STATUSES),
             "valid_decision_types": sorted(VALID_DECISION_TYPES),
+            "valid_languages": VALID_LANGUAGE_OPTIONS,
+            "valid_language_codes": VALID_LANGUAGE_CODES,
             "valid_directions": ["auto", "ltr", "rtl"],
             "valid_relation_types": ["related_to", "depends_on", "blocks", "supersedes", "informs"],
         },
@@ -862,6 +866,8 @@ def render_edit_form(
             "records": records,
             "valid_statuses": sorted(VALID_STATUSES),
             "valid_decision_types": sorted(VALID_DECISION_TYPES),
+            "valid_languages": VALID_LANGUAGE_OPTIONS,
+            "valid_language_codes": VALID_LANGUAGE_CODES,
             "valid_directions": ["auto", "ltr", "rtl"],
             "valid_relation_types": sorted(VALID_RELATION_TYPES),
         },

@@ -55,7 +55,14 @@
     </div>
     <div class="field">
       <label for="language">Language</label>
-      <input id="language" name="language" value="{{ data.language }}" placeholder="en or fa">
+      <select id="language" name="language">
+        {% for language in valid_languages %}
+        <option value="{{ language.code }}" {% if data.language == language.code %}selected{% endif %}>{{ language.label }}</option>
+        {% endfor %}
+        {% if data.language and data.language not in valid_language_codes %}
+        <option value="{{ data.language }}" selected>{{ data.language }}</option>
+        {% endif %}
+      </select>
     </div>
     <div class="field">
       <label for="direction">Direction</label>
