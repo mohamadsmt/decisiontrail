@@ -1,0 +1,4 @@
+{"version": 1, "previous_version": null, "changed_at": "2026-05-18T08:31:23Z", "source": "web", "action": "baseline", "changed_fields": [], "snapshot": ".decisiontrail/history/DEC-2026-003/v0001.md"}
+{"version": 2, "previous_version": 1, "changed_at": "2026-05-18T08:31:23Z", "source": "web", "action": "assumption_updated", "changed_fields": ["assumptions"], "snapshot": ".decisiontrail/history/DEC-2026-003/v0002.md"}
+{"version": 3, "previous_version": 2, "changed_at": "2026-05-18T08:31:33Z", "source": "web", "action": "assumption_updated", "changed_fields": ["assumptions"], "snapshot": ".decisiontrail/history/DEC-2026-003/v0003.md"}
+{"version": 4, "previous_version": 3, "changed_at": "2026-05-18T08:31:43Z", "source": "web", "action": "assumption_updated", "changed_fields": ["assumptions"], "snapshot": ".decisiontrail/history/DEC-2026-003/v0004.md"}

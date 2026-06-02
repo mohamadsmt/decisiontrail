@@ -424,6 +424,38 @@ def test_ui_quick_status_and_assumption_verification(tmp_path: Path) -> None:
     ]
 
 
+def test_detail_renders_mixed_direction_evidence_as_isolated_blocks(tmp_path: Path) -> None:
+    config = load_config(tmp_path)
+    record = create_decision(
+        tmp_path,
+        config,
+        "Persian evidence",
+        evidence=[
+            {
+                "id": "EVD-001",
+                "title": "بررسی BazaarGPT handoff",
+                "type": "note",
+                "ref": "bazaar-strategy-arbiter:/Users/mohamadsmt/Documents/New project 12/knowledge/bazaar-1405",
+                "note": "فرض‌ها: همکاری با BazaarGPT و KPIهای MetricMind هنوز برای ۱۴۰۵ نیاز به owner دارد.",
+                "added_on": "2026-06-02",
+                "links": [{"type": "assumption", "target": "0"}],
+            }
+        ],
+    )
+    client = TestClient(create_web_app(tmp_path))
+
+    response = client.get(f"/decisions/{record.id}")
+
+    assert response.status_code == 200
+    assert 'class="compact-list evidence-list"' in response.text
+    assert 'class="evidence-item"' in response.text
+    assert '<bdi class="evidence-id">EVD-001</bdi>' in response.text
+    assert 'class="evidence-ref" href="bazaar-strategy-arbiter:/Users/mohamadsmt/Documents/New project 12/knowledge/bazaar-1405" dir="ltr"' in response.text
+    assert 'class="evidence-note bidi-text" dir="rtl"' in response.text
+    assert '<bdi dir="ltr">BazaarGPT</bdi>' in response.text
+    assert "بررسی BazaarGPT handoff" in response.text
+
+
 def test_ui_adds_and_removes_outgoing_relation(tmp_path: Path) -> None:
     config = load_config(tmp_path)
     source = create_decision(tmp_path, config, "Source")

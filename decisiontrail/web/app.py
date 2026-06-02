@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 from typing import Annotated
@@ -9,6 +10,7 @@ from fastapi import FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup, escape
 from markdown import markdown
 
 from decisiontrail.annotations import append_evidence, append_metric_update, evidence_items, metric_updates, remove_evidence_at
@@ -24,6 +26,7 @@ from decisiontrail.models import (
     VALID_RELATION_TYPES,
     VALID_STATUSES,
     collect_tags,
+    contains_rtl_text,
     tag_labels,
 )
 from decisiontrail.parser import parse_meeting_text
@@ -74,6 +77,67 @@ from decisiontrail.web.forms import (
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(PACKAGE_DIR / "templates"))
+EVIDENCE_NOTE_LABELS = (
+    "تصمیم / موضع:",
+    "فرض‌ها:",
+    "شواهد:",
+    "تعارض‌ها:",
+    "داده‌های ناقص:",
+    "ریسک‌ها:",
+    "پیشنهاد:",
+)
+EVIDENCE_NOTE_LABEL_PATTERN = re.compile("|".join(re.escape(label) for label in EVIDENCE_NOTE_LABELS))
+LTR_RUN_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/%+#@&=-]*(?:[ \t]+[A-Za-z0-9][A-Za-z0-9._:/%+#@&=-]*)*")
+
+
+def text_direction(value: object) -> str:
+    return "rtl" if contains_rtl_text(value) else "auto"
+
+
+def _with_isolated_ltr_runs(value: str) -> Markup:
+    parts: list[Markup] = []
+    position = 0
+    for match in LTR_RUN_PATTERN.finditer(value):
+        if match.start() > position:
+            parts.append(escape(value[position : match.start()]))
+        parts.append(Markup('<bdi dir="ltr">') + escape(match.group(0)) + Markup("</bdi>"))
+        position = match.end()
+    if position < len(value):
+        parts.append(escape(value[position:]))
+    return Markup("").join(parts)
+
+
+def evidence_note(value: object) -> Markup:
+    text = str(value or "").strip()
+    if not text:
+        return Markup("")
+    for label in EVIDENCE_NOTE_LABELS:
+        text = re.sub(rf"\s*{re.escape(label)}", f"\n\n{label}", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
+    paragraphs = []
+    for paragraph in text.split("\n\n"):
+        paragraph = re.sub(r"[ \t]*\n[ \t]*", " ", paragraph).strip()
+        if paragraph:
+            paragraphs.append(paragraph)
+
+    rendered: list[Markup] = []
+    for paragraph in paragraphs:
+        label_match = EVIDENCE_NOTE_LABEL_PATTERN.match(paragraph)
+        if label_match:
+            label = label_match.group(0)
+            body = paragraph[label_match.end() :].strip()
+            content = Markup('<strong class="evidence-note-label">') + escape(label) + Markup("</strong>")
+            if body:
+                content += Markup(" ") + _with_isolated_ltr_runs(body)
+        else:
+            content = _with_isolated_ltr_runs(paragraph)
+        rendered.append(Markup('<span class="evidence-note-paragraph">') + content + Markup("</span>"))
+    return Markup("").join(rendered)
+
+
+templates.env.filters["text_direction"] = text_direction
+templates.env.filters["evidence_note"] = evidence_note
 
 
 def create_web_app(root: Path) -> FastAPI:

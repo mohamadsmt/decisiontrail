@@ -1,0 +1,4 @@
+{"version": 1, "previous_version": null, "changed_at": "2026-05-30T18:04:43Z", "source": "mcp", "action": "created", "changed_fields": ["created"], "snapshot": ".decisiontrail/history/DEC-2026-012/v0001.md"}
+{"version": 2, "previous_version": 1, "changed_at": "2026-05-30T18:04:50Z", "source": "mcp", "action": "evidence_added", "changed_fields": ["evidence"], "snapshot": ".decisiontrail/history/DEC-2026-012/v0002.md"}
+{"version": 3, "previous_version": 2, "changed_at": "2026-06-02T14:26:48Z", "source": "mcp", "action": "evidence_added", "changed_fields": ["evidence"], "snapshot": ".decisiontrail/history/DEC-2026-012/v0003.md"}
+{"version": 4, "previous_version": 3, "changed_at": "2026-06-02T15:22:12Z", "source": "mcp", "action": "evidence_added", "changed_fields": ["evidence"], "snapshot": ".decisiontrail/history/DEC-2026-012/v0004.md"}

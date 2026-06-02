@@ -699,6 +699,101 @@ tbody tr:hover {
   padding-block: 6px;
 }
 
+.bidi-text {
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+  word-break: normal;
+}
+
+.evidence-list {
+  list-style: none;
+  padding-inline-start: 0;
+}
+
+.evidence-item {
+  border-block-start: 1px solid var(--line);
+  gap: 8px;
+  padding-block: 12px;
+}
+
+.evidence-item:first-child {
+  border-block-start: 0;
+  padding-block-start: 4px;
+}
+
+.evidence-heading {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  min-width: 0;
+}
+
+.evidence-title {
+  align-items: baseline;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0 5px;
+  min-width: 0;
+}
+
+.evidence-id,
+.evidence-meta bdi,
+.evidence-links bdi {
+  direction: ltr;
+  unicode-bidi: isolate;
+  white-space: nowrap;
+}
+
+.evidence-meta,
+.evidence-links {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.evidence-ref {
+  direction: ltr;
+  display: block;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: start;
+  unicode-bidi: plaintext;
+  word-break: break-word;
+}
+
+.evidence-note {
+  color: #3f4a46;
+  display: grid;
+  font-size: 0.92rem;
+  gap: 8px;
+  line-height: 1.68;
+  margin: 0;
+  max-width: 82ch;
+  text-align: start;
+}
+
+.evidence-note[dir="rtl"] {
+  margin-inline-start: auto;
+  text-align: right;
+  unicode-bidi: isolate;
+}
+
+.evidence-note-paragraph {
+  display: block;
+}
+
+.evidence-note-label {
+  color: var(--text);
+  font-weight: 760;
+}
+
+.evidence-note bdi {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
 .decision-form,
 .review-form {
   display: grid;

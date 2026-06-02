@@ -270,23 +270,33 @@
 
   <details class="panel" id="evidence" open>
     <summary>Evidence</summary>
-    <ul class="compact-list">
+    <ul class="compact-list evidence-list">
       {% for item in evidence_items %}
-      <li>
-        <strong>{{ item.id or "#" ~ loop.index0 }} · {{ item.title }}</strong>
-        <span>{{ item.type }} · {{ item.added_on or "-" }}</span>
+      <li class="evidence-item">
+        <div class="evidence-heading">
+          <strong class="evidence-title" dir="auto">
+            <bdi class="evidence-id">{{ item.id or "#" ~ loop.index0 }}</bdi>
+            <span aria-hidden="true">·</span>
+            <span class="bidi-text">{{ item.title }}</span>
+          </strong>
+          <span class="evidence-meta">
+            <bdi>{{ item.type }}</bdi>
+            <span aria-hidden="true">·</span>
+            <bdi>{{ item.added_on or "-" }}</bdi>
+          </span>
+        </div>
         {% if item.links %}
-        <small>
-          Links:
+        <small class="evidence-links" dir="auto">
+          <span>Links:</span>
           {% for link in item.links %}
-          {{ link.type }}:{{ link.target }}{% if not loop.last %}, {% endif %}
+          <bdi>{{ link.type }}:{{ link.target }}</bdi>{% if not loop.last %}, {% endif %}
           {% endfor %}
         </small>
         {% endif %}
         {% if item.ref %}
-        <a href="{{ item.ref }}" dir="auto">{{ item.ref }}</a>
+        <a class="evidence-ref" href="{{ item.ref }}" dir="ltr">{{ item.ref }}</a>
         {% endif %}
-        {% if item.note %}<small dir="auto">{{ item.note }}</small>{% endif %}
+        {% if item.note %}<div class="evidence-note bidi-text" dir="{{ item.note|text_direction }}">{{ item.note|evidence_note }}</div>{% endif %}
         <form class="inline-form" method="post" action="/decisions/{{ record.id }}/evidence/remove">
           <input type="hidden" name="evidence_index" value="{{ loop.index0 }}">
           <button class="button-secondary" type="submit">Remove</button>
